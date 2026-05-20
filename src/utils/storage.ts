@@ -2,7 +2,7 @@ import type { DaySchedule, Person, StoredChecklist, WeekSchedule } from "../type
 
 const STORAGE_KEY = "homeScheduleChecklist:v1";
 
-function readStore(): StoredChecklist {
+function readLocalStore(): StoredChecklist {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? (JSON.parse(raw) as StoredChecklist) : {};
@@ -11,8 +11,21 @@ function readStore(): StoredChecklist {
   }
 }
 
-function writeStore(store: StoredChecklist): void {
+function writeLocalStore(store: StoredChecklist): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+}
+
+async function apiRequest(path: string, options?: RequestInit): Promise<Response> {
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status}`);
+  }
+
+  return response;
 }
 
 export function createChecklistKey(
@@ -25,48 +38,82 @@ export function createChecklistKey(
 }
 
 export function getCompletedItemsForTask(
+  checks: StoredChecklist,
   date: string,
   taskId: string,
   assignedTo: Person,
   itemCount: number,
 ): boolean[] {
-  const store = readStore();
   return Array.from(
     { length: itemCount },
-    (_, index) => store[createChecklistKey(date, taskId, assignedTo, index)] === true,
+    (_, index) => checks[createChecklistKey(date, taskId, assignedTo, index)] === true,
   );
 }
 
-export function toggleChecklistItem(
+export function getLocalChecks(): StoredChecklist {
+  return readLocalStore();
+}
+
+export async function fetchChecks(from: string): Promise<StoredChecklist> {
+  try {
+    const response = await apiRequest(`/api/checks?from=${encodeURIComponent(from)}`);
+    const data = (await response.json()) as { checks?: StoredChecklist };
+    const checks = data.checks ?? {};
+    writeLocalStore(checks);
+    return checks;
+  } catch {
+    return readLocalStore();
+  }
+}
+
+export async function setChecklistItem(
   date: string,
   taskId: string,
   assignedTo: Person,
   itemIndex: number,
-): void {
-  const store = readStore();
-  const key = createChecklistKey(date, taskId, assignedTo, itemIndex);
-  store[key] = !store[key];
-  writeStore(store);
+  completed: boolean,
+): Promise<void> {
+  const store = readLocalStore();
+  store[createChecklistKey(date, taskId, assignedTo, itemIndex)] = completed;
+  writeLocalStore(store);
+
+  try {
+    await apiRequest("/api/checks/item", {
+      method: "POST",
+      body: JSON.stringify({ date, taskId, assignedTo, itemIndex, completed }),
+    });
+  } catch {
+    // Keep the optimistic local state if the shared API is temporarily unavailable.
+  }
 }
 
-export function setTaskCompletion(
+export async function setTaskCompletion(
   date: string,
   taskId: string,
   assignedTo: Person,
   itemCount: number,
   completed: boolean,
-): void {
-  const store = readStore();
+): Promise<void> {
+  const store = readLocalStore();
 
   for (let index = 0; index < itemCount; index += 1) {
     store[createChecklistKey(date, taskId, assignedTo, index)] = completed;
   }
 
-  writeStore(store);
+  writeLocalStore(store);
+
+  try {
+    await apiRequest("/api/checks/task", {
+      method: "POST",
+      body: JSON.stringify({ date, taskId, assignedTo, itemCount, completed }),
+    });
+  } catch {
+    // Keep the optimistic local state if the shared API is temporarily unavailable.
+  }
 }
 
-export function resetDay(daySchedule: DaySchedule): void {
-  const store = readStore();
+export async function resetDay(daySchedule: DaySchedule): Promise<void> {
+  const store = readLocalStore();
 
   for (const task of daySchedule.tasks) {
     for (let index = 0; index < task.checklist.length; index += 1) {
@@ -74,11 +121,20 @@ export function resetDay(daySchedule: DaySchedule): void {
     }
   }
 
-  writeStore(store);
+  writeLocalStore(store);
+
+  try {
+    await apiRequest("/api/checks/reset-day", {
+      method: "POST",
+      body: JSON.stringify({ date: daySchedule.date }),
+    });
+  } catch {
+    // Keep the optimistic local state if the shared API is temporarily unavailable.
+  }
 }
 
 export function cleanupPastDates(today: string): void {
-  const store = readStore();
+  const store = readLocalStore();
   let changed = false;
 
   for (const key of Object.keys(store)) {
@@ -91,12 +147,12 @@ export function cleanupPastDates(today: string): void {
   }
 
   if (changed) {
-    writeStore(store);
+    writeLocalStore(store);
   }
 }
 
 export function resetWeek(weekSchedule: WeekSchedule): void {
-  const store = readStore();
+  const store = readLocalStore();
 
   for (const day of weekSchedule.days) {
     for (const task of day.tasks) {
@@ -106,5 +162,5 @@ export function resetWeek(weekSchedule: WeekSchedule): void {
     }
   }
 
-  writeStore(store);
+  writeLocalStore(store);
 }

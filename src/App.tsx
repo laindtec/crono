@@ -5,9 +5,11 @@ import { formatLongDate, getDateFromTodayOffset, getTodayISODate } from "./utils
 import { generateDayScheduleForDate } from "./utils/scheduleGenerator";
 import {
   cleanupPastDates,
+  fetchChecks,
+  getLocalChecks,
   resetDay,
+  setChecklistItem,
   setTaskCompletion,
-  toggleChecklistItem,
 } from "./utils/storage";
 
 const SWIPE_THRESHOLD = 70;
@@ -36,18 +38,33 @@ export default function App() {
   const [dayOffset, setDayOffset] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
   const [dragOffset, setDragOffset] = useState(0);
+  const [checks, setChecks] = useState(() => getLocalChecks());
   const [slideDirection, setSlideDirection] = useState<SlideDirection>("today");
   const swipeStartX = useRef<number | null>(null);
 
   const selectedDate = useMemo(() => getDateFromTodayOffset(dayOffset), [dayOffset]);
   const daySchedule = useMemo(
-    () => generateDayScheduleForDate(selectedDate),
-    [selectedDate, refreshToken],
+    () => generateDayScheduleForDate(selectedDate, checks),
+    [selectedDate, checks, refreshToken],
   );
 
   useEffect(() => {
     cleanupPastDates(today);
   }, [today]);
+
+  useEffect(() => {
+    let active = true;
+
+    fetchChecks(today).then((nextChecks) => {
+      if (active) {
+        setChecks(nextChecks);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [today, refreshToken]);
 
   function refreshSchedule() {
     setRefreshToken((current) => current + 1);
@@ -58,19 +75,54 @@ export default function App() {
     setDayOffset(Math.max(0, nextOffset));
   }
 
-  function handleToggleItem(date: string, task: Task, itemIndex: number) {
-    toggleChecklistItem(date, task.id, task.assignedTo, itemIndex);
-    refreshSchedule();
+  async function handleToggleItem(date: string, task: Task, itemIndex: number) {
+    const completed = !task.completedItems[itemIndex];
+    const key = `${date}:${task.id}:${task.assignedTo}:${itemIndex}`;
+    setChecks((current) => ({ ...current, [key]: completed }));
+
+    try {
+      await setChecklistItem(date, task.id, task.assignedTo, itemIndex, completed);
+    } finally {
+      refreshSchedule();
+    }
   }
 
-  function handleMarkAll(date: string, task: Task, completed: boolean) {
-    setTaskCompletion(date, task.id, task.assignedTo, task.checklist.length, completed);
-    refreshSchedule();
+  async function handleMarkAll(date: string, task: Task, completed: boolean) {
+    setChecks((current) => {
+      const next = { ...current };
+
+      for (let index = 0; index < task.checklist.length; index += 1) {
+        next[`${date}:${task.id}:${task.assignedTo}:${index}`] = completed;
+      }
+
+      return next;
+    });
+
+    try {
+      await setTaskCompletion(date, task.id, task.assignedTo, task.checklist.length, completed);
+    } finally {
+      refreshSchedule();
+    }
   }
 
-  function handleResetDay() {
-    resetDay(daySchedule);
-    refreshSchedule();
+  async function handleResetDay() {
+    setChecks((current) => {
+      const next = { ...current };
+
+      for (const task of daySchedule.tasks) {
+        for (let index = 0; index < task.checklist.length; index += 1) {
+          delete next[`${daySchedule.date}:${task.id}:${task.assignedTo}:${index}`];
+        }
+      }
+
+      return next;
+    });
+
+    try {
+      await resetDay(daySchedule);
+    } finally {
+      refreshSchedule();
+    }
   }
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {

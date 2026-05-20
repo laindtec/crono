@@ -1,4 +1,4 @@
-import type { DaySchedule, Person, Task, WeekSchedule } from "../types";
+import type { DaySchedule, Person, StoredChecklist, Task, WeekSchedule } from "../types";
 import {
   addDays,
   BASE_WEEK_START,
@@ -53,6 +53,7 @@ function getOtherPerson(person: Person): Person {
 }
 
 function createTask(
+  checks: StoredChecklist,
   date: string,
   id: string,
   title: string,
@@ -64,16 +65,17 @@ function createTask(
     title,
     assignedTo,
     checklist,
-    completedItems: getCompletedItemsForTask(date, id, assignedTo, checklist.length),
+    completedItems: getCompletedItemsForTask(checks, date, id, assignedTo, checklist.length),
   };
 }
 
-export function generateDayScheduleForDate(date: string): DaySchedule {
+export function generateDayScheduleForDate(date: string, checks: StoredChecklist = {}): DaySchedule {
   const weekStart = toISODate(getMonday(parseLocalDate(date)));
   const isFriday = parseLocalDate(date).getDay() === 5;
   const dishwasher = getDishwasherForDate(date);
   const tasks: Task[] = [
     createTask(
+      checks,
       date,
       "dishwashing-kitchen",
       "Lavar platos y limpiar cocina",
@@ -83,7 +85,9 @@ export function generateDayScheduleForDate(date: string): DaySchedule {
   ];
 
   if (!isFriday) {
-    tasks.push(createTask(date, "night-cooking", "Cocinar de noche", getCookForDate(date), cookingChecklist));
+    tasks.push(
+      createTask(checks, date, "night-cooking", "Cocinar de noche", getCookForDate(date), cookingChecklist),
+    );
   }
 
   if (isFriday) {
@@ -93,6 +97,7 @@ export function generateDayScheduleForDate(date: string): DaySchedule {
 
     tasks.push(
       createTask(
+        checks,
         date,
         "bathroom-deep-clean",
         "Limpieza profunda del baño",
