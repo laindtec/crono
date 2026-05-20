@@ -50,10 +50,8 @@ export function getBathroomCleanerForWeek(weekStart: string): Person {
   return bathroomRotation[((weekOffset % bathroomRotation.length) + bathroomRotation.length) % bathroomRotation.length];
 }
 
-function getNextBathroomCandidate(current: Person): Person {
-  const currentIndex = bathroomRotation.indexOf(current);
-  const nextIndex = currentIndex === -1 ? 0 : currentIndex + 1;
-  return bathroomRotation[nextIndex % bathroomRotation.length];
+function getKitchenConflictFallback(person: Person): Person {
+  return person === "Theo" ? "Nahuel" : "Theo";
 }
 
 function createTask(
@@ -98,7 +96,7 @@ export function generateDayScheduleForDate(date: string, checks: StoredChecklist
     const weeklyBathroomCleaner = getBathroomCleanerForWeek(weekStart);
     const bathroomCleaner =
       weeklyBathroomCleaner === dishwasher
-        ? getNextBathroomCandidate(weeklyBathroomCleaner)
+        ? getKitchenConflictFallback(weeklyBathroomCleaner)
         : weeklyBathroomCleaner;
 
     tasks.push(
