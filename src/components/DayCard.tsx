@@ -1,5 +1,5 @@
 import type { DaySchedule, Task } from "../types";
-import { formatDayName, formatShortDate, isToday } from "../utils/dateUtils";
+import { formatDayHeading, isToday } from "../utils/dateUtils";
 import ProgressBar from "./ProgressBar";
 import TaskCard from "./TaskCard";
 
@@ -25,9 +25,9 @@ export default function DayCard({ day, onToggleItem, onMarkAll }: DayCardProps) 
     >
       <header className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="animate-rise-in">
-          <div className="flex items-center gap-2">
-            <h2 className="capitalize text-3xl font-black text-white sm:text-4xl">
-              {formatDayName(day.date)}
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="text-3xl font-black text-white sm:text-4xl">
+              {formatDayHeading(day.date)}
             </h2>
             {highlighted ? (
               <span className="animate-scale-in rounded-full bg-cyan-300 px-3 py-1 text-xs font-bold text-slate-950">
@@ -35,7 +35,6 @@ export default function DayCard({ day, onToggleItem, onMarkAll }: DayCardProps) 
               </span>
             ) : null}
           </div>
-          <p className="mt-2 text-xl font-semibold text-slate-400">{formatShortDate(day.date)}</p>
         </div>
         <div className="animate-rise-in w-full rounded-lg border border-white/10 bg-slate-900 p-4 sm:w-72">
           <ProgressBar completed={completedItems} total={totalItems} label="Progreso del día" />

@@ -188,9 +188,6 @@ export default function App() {
       <section className="animate-fade-in mb-4 rounded-xl border border-white/10 bg-slate-900/80 p-4 shadow-[0_18px_55px_rgba(0,0,0,0.35)] backdrop-blur sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="mb-2 text-sm font-black uppercase tracking-wide text-cyan-300">
-              Theo y Nahuel
-            </p>
             <h1 className="text-2xl font-black leading-tight text-white sm:text-4xl">
               Cronograma de Tareas del Hogar
             </h1>

@@ -50,6 +50,15 @@ export function formatDayName(date: string): string {
   return new Intl.DateTimeFormat("es-AR", { weekday: "long" }).format(parseLocalDate(date));
 }
 
+export function formatDayHeading(date: string): string {
+  const parsedDate = parseLocalDate(date);
+  const weekday = new Intl.DateTimeFormat("es-AR", { weekday: "long" }).format(parsedDate);
+  const month = new Intl.DateTimeFormat("es-AR", { month: "long" }).format(parsedDate);
+  const capitalizedWeekday = `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}`;
+
+  return `${capitalizedWeekday} ${parsedDate.getDate()} ${month.toUpperCase()}`;
+}
+
 export function formatShortDate(date: string): string {
   return new Intl.DateTimeFormat("es-AR", {
     day: "numeric",

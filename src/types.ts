@@ -1,4 +1,4 @@
-export type Person = "Theo" | "Nahuel";
+export type Person = "Theo" | "Nahuel" | "Laura";
 
 export type Task = {
   id: string;

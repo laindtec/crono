@@ -9,6 +9,8 @@ import {
 } from "./dateUtils";
 import { getCompletedItemsForTask } from "./storage";
 
+const bathroomRotation: Person[] = ["Theo", "Nahuel", "Laura"];
+
 const dishwashingChecklist = [
   "Lavar los platos después del almuerzo.",
   "Lavar los platos después de la cena.",
@@ -45,11 +47,13 @@ export function getBathroomCleanerForWeek(weekStart: string): Person {
   const weekOffset = Math.round(
     differenceInDays(parseLocalDate(weekStart), parseLocalDate(BASE_WEEK_START)) / 7,
   );
-  return Math.abs(weekOffset % 2) === 0 ? "Theo" : "Nahuel";
+  return bathroomRotation[((weekOffset % bathroomRotation.length) + bathroomRotation.length) % bathroomRotation.length];
 }
 
-function getOtherPerson(person: Person): Person {
-  return person === "Theo" ? "Nahuel" : "Theo";
+function getNextBathroomCandidate(current: Person): Person {
+  const currentIndex = bathroomRotation.indexOf(current);
+  const nextIndex = currentIndex === -1 ? 0 : currentIndex + 1;
+  return bathroomRotation[nextIndex % bathroomRotation.length];
 }
 
 function createTask(
@@ -93,7 +97,9 @@ export function generateDayScheduleForDate(date: string, checks: StoredChecklist
   if (isFriday) {
     const weeklyBathroomCleaner = getBathroomCleanerForWeek(weekStart);
     const bathroomCleaner =
-      weeklyBathroomCleaner === dishwasher ? getOtherPerson(dishwasher) : weeklyBathroomCleaner;
+      weeklyBathroomCleaner === dishwasher
+        ? getNextBathroomCandidate(weeklyBathroomCleaner)
+        : weeklyBathroomCleaner;
 
     tasks.push(
       createTask(
