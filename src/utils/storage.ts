@@ -66,6 +66,16 @@ export async function fetchChecks(from: string): Promise<StoredChecklist> {
   }
 }
 
+export async function fetchStorageStatus(): Promise<"mysql" | "memory" | "unavailable"> {
+  try {
+    const response = await apiRequest("/api/health");
+    const data = (await response.json()) as { storage?: string };
+    return data.storage === "mysql" ? "mysql" : "memory";
+  } catch {
+    return "unavailable";
+  }
+}
+
 export async function setChecklistItem(
   date: string,
   taskId: string,

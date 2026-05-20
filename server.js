@@ -115,7 +115,11 @@ app.get("/api/health", async (_req, res) => {
       await pool.query("SELECT 1");
     }
 
-    res.json({ ok: true, storage: pool ? "mysql" : "memory" });
+    res.json({
+      ok: true,
+      storage: pool ? "mysql" : "memory",
+      mysqlConfigured: hasDatabaseConfig,
+    });
   } catch (error) {
     sendApiError(res, error);
   }

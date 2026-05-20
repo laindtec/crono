@@ -6,6 +6,7 @@ import { generateDayScheduleForDate } from "./utils/scheduleGenerator";
 import {
   cleanupPastDates,
   fetchChecks,
+  fetchStorageStatus,
   getLocalChecks,
   resetDay,
   setChecklistItem,
@@ -39,6 +40,9 @@ export default function App() {
   const [refreshToken, setRefreshToken] = useState(0);
   const [dragOffset, setDragOffset] = useState(0);
   const [checks, setChecks] = useState(() => getLocalChecks());
+  const [storageStatus, setStorageStatus] = useState<"checking" | "mysql" | "memory" | "unavailable">(
+    "checking",
+  );
   const [slideDirection, setSlideDirection] = useState<SlideDirection>("today");
   const swipeStartX = useRef<number | null>(null);
 
@@ -54,6 +58,12 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
+
+    fetchStorageStatus().then((status) => {
+      if (active) {
+        setStorageStatus(status);
+      }
+    });
 
     fetchChecks(today).then((nextChecks) => {
       if (active) {
@@ -197,6 +207,15 @@ export default function App() {
           </button>
         </div>
       </section>
+
+      {storageStatus !== "checking" && storageStatus !== "mysql" ? (
+        <section className="animate-rise-in mb-4 rounded-lg border border-amber-300/30 bg-amber-300/10 p-4 text-amber-100">
+          <p className="text-base font-black">Sin sincronización entre dispositivos</p>
+          <p className="mt-1 text-sm font-semibold text-amber-100/80">
+            La app está usando almacenamiento local porque MySQL no está activo en el servidor.
+          </p>
+        </section>
+      ) : null}
 
       <section
         className="flex-1 select-none touch-pan-y overflow-hidden"
