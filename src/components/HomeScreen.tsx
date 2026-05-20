@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   fetchFranckWeather,
   formatWeatherDay,
+  getWeatherIcon,
   getWeatherLabel,
   type WeatherData,
 } from "../utils/weather";
@@ -66,29 +67,64 @@ export default function HomeScreen({ onOpenSchedule }: HomeScreenProps) {
         <div className="flex justify-end">
           <button
             type="button"
-            className="min-w-56 rounded-xl border border-white/10 bg-white/[0.04] p-4 text-left shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur transition active:scale-[0.98]"
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-white/[0.045] p-5 text-left shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur transition active:scale-[0.98] sm:w-[25rem]"
             onClick={(event) => {
               event.stopPropagation();
               setWeatherOpen((current) => !current);
             }}
           >
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-white/50">Franck, Santa Fe</p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.2em] text-white/50">Franck, Santa Fe</p>
+                {weather ? (
+                  <p className="mt-2 text-lg font-bold text-white/70">{getWeatherLabel(weather.currentCode)}</p>
+                ) : null}
+              </div>
+              {weather ? (
+                <span className="text-5xl leading-none text-white" aria-hidden="true">
+                  {getWeatherIcon(weather.currentCode, weather.isDay)}
+                </span>
+              ) : null}
+            </div>
+
             {weather ? (
               <>
-                <div className="mt-3 flex items-end justify-between gap-4">
-                  <p className="text-5xl font-black leading-none">{weather.currentTemp}°</p>
-                  <p className="pb-1 text-right text-sm font-bold text-white/70">
-                    {getWeatherLabel(weather.currentCode)}
-                  </p>
+                <div className="mt-4 flex items-end justify-between gap-4">
+                  <div>
+                    <p className="text-6xl font-black leading-none">{weather.currentTemp}°</p>
+                    <p className="mt-2 text-sm font-bold text-white/55">Sensación {weather.apparentTemp}°</p>
+                  </div>
+                  <div className="grid gap-2 text-right text-sm font-bold text-white/65">
+                    <span>Humedad {weather.humidity}%</span>
+                    <span>Viento {weather.windSpeed} km/h</span>
+                  </div>
                 </div>
+
+                <div className="mt-5 grid grid-cols-3 gap-2">
+                  {weather.daily.slice(1, 4).map((day) => (
+                    <div className="rounded-xl bg-white/[0.06] p-3 text-center" key={day.date}>
+                      <p className="text-xs font-black uppercase text-white/45">{formatWeatherDay(day.date)}</p>
+                      <p className="mt-1 text-3xl leading-none" aria-hidden="true">
+                        {getWeatherIcon(day.code)}
+                      </p>
+                      <p className="mt-2 text-sm font-black tabular-nums text-white">
+                        {day.max}°/{day.min}°
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
                 {weatherOpen ? (
                   <div className="mt-5 space-y-3 border-t border-white/10 pt-4">
                     {weather.daily.slice(1).map((day) => (
-                      <div className="flex items-center justify-between gap-5 text-sm font-bold" key={day.date}>
+                      <div className="grid grid-cols-[2.5rem_2rem_1fr_auto] items-center gap-3 text-sm font-bold" key={day.date}>
                         <span className="text-white/70">{formatWeatherDay(day.date)}</span>
+                        <span className="text-2xl leading-none" aria-hidden="true">
+                          {getWeatherIcon(day.code)}
+                        </span>
                         <span className="text-white/55">{getWeatherLabel(day.code)}</span>
-                        <span className="tabular-nums text-white">
-                          {day.max}° / {day.min}°
+                        <span className="text-right tabular-nums text-white">
+                          {day.max}° / {day.min}° · {day.rainChance}%
                         </span>
                       </div>
                     ))}
