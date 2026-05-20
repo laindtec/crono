@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import DayCard from "./components/DayCard";
+import HomeScreen from "./components/HomeScreen";
 import type { Task } from "./types";
 import { formatLongDate, getDateFromTodayOffset, getTodayISODate } from "./utils/dateUtils";
 import { generateDayScheduleForDate } from "./utils/scheduleGenerator";
@@ -36,6 +37,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 export default function App() {
   const today = useMemo(() => getTodayISODate(), []);
+  const [showSchedule, setShowSchedule] = useState(false);
   const [dayOffset, setDayOffset] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
   const [dragOffset, setDragOffset] = useState(0);
@@ -181,6 +183,10 @@ export default function App() {
   function handlePointerCancel() {
     swipeStartX.current = null;
     setDragOffset(0);
+  }
+
+  if (!showSchedule) {
+    return <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />;
   }
 
   return (
