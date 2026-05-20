@@ -62,7 +62,7 @@ export default function HomeScreen({ onOpenSchedule }: HomeScreenProps) {
       className="min-h-screen cursor-pointer bg-black px-5 py-6 text-white sm:px-8"
       onClick={onOpenSchedule}
     >
-      <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-5xl flex-col justify-between">
+      <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-6xl flex-col justify-between">
         <div className="flex justify-end">
           <button
             type="button"
@@ -101,12 +101,12 @@ export default function HomeScreen({ onOpenSchedule }: HomeScreenProps) {
           </button>
         </div>
 
-        <div className="pb-12">
-          <p className="text-xl font-bold capitalize text-white/55 sm:text-2xl">{dateLabel}</p>
-          <h1 className="mt-4 text-[5.8rem] font-black leading-none tracking-normal text-white sm:text-[9rem] md:text-[12rem]">
+        <div className="pb-10">
+          <p className="text-2xl font-bold capitalize text-white/55 sm:text-3xl">{dateLabel}</p>
+          <h1 className="mt-3 text-[6.5rem] font-black leading-none tracking-normal text-white sm:text-[12.5rem] md:text-[16rem] lg:text-[18rem]">
             {formatClock(now)}
           </h1>
-          <p className="mt-6 text-lg font-bold text-white/45 sm:text-xl">Tocá la pantalla para abrir el cronograma</p>
+          <p className="mt-5 text-lg font-bold text-white/45 sm:text-xl">Tocá la pantalla para abrir el cronograma</p>
         </div>
       </section>
     </main>

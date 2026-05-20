@@ -16,6 +16,7 @@ import {
 
 const SWIPE_THRESHOLD = 70;
 const DRAG_LIMIT = 140;
+const CLOCK_IDLE_TIMEOUT_MS = 120_000;
 
 type SlideDirection = "next" | "previous" | "today";
 
@@ -77,6 +78,38 @@ export default function App() {
       active = false;
     };
   }, [today, refreshToken]);
+
+  useEffect(() => {
+    if (!showSchedule) {
+      return undefined;
+    }
+
+    let idleTimer = window.setTimeout(() => {
+      setDayOffset(0);
+      setSlideDirection("today");
+      setDragOffset(0);
+      setShowSchedule(false);
+    }, CLOCK_IDLE_TIMEOUT_MS);
+
+    function resetIdleTimer() {
+      window.clearTimeout(idleTimer);
+      idleTimer = window.setTimeout(() => {
+        setDayOffset(0);
+        setSlideDirection("today");
+        setDragOffset(0);
+        setShowSchedule(false);
+      }, CLOCK_IDLE_TIMEOUT_MS);
+    }
+
+    window.addEventListener("pointerdown", resetIdleTimer);
+    window.addEventListener("keydown", resetIdleTimer);
+
+    return () => {
+      window.clearTimeout(idleTimer);
+      window.removeEventListener("pointerdown", resetIdleTimer);
+      window.removeEventListener("keydown", resetIdleTimer);
+    };
+  }, [showSchedule]);
 
   function refreshSchedule() {
     setRefreshToken((current) => current + 1);
