@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import CleaningMode, { BrushIcon } from "./components/CleaningMode";
 import DayCard from "./components/DayCard";
 import HomeScreen from "./components/HomeScreen";
 import type { Task } from "./types";
@@ -57,6 +58,7 @@ export default function App() {
     "checking",
   );
   const [slideDirection, setSlideDirection] = useState<SlideDirection>("today");
+  const [cleaningModeActive, setCleaningModeActive] = useState(false);
   const swipeStartX = useRef<number | null>(null);
 
   const selectedDate = useMemo(() => getDateFromTodayOffset(dayOffset), [dayOffset]);
@@ -246,11 +248,41 @@ export default function App() {
     setDragOffset(0);
   }
 
+  const finishCleaningMode = useCallback(() => {
+    setCleaningModeActive(false);
+  }, []);
+
+  const cleaningModeControls = (
+    <>
+      <CleaningMode active={cleaningModeActive} onFinish={finishCleaningMode} />
+      {!cleaningModeActive ? (
+        <button
+          aria-label="Activar modo limpieza"
+          className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-slate-950/90 text-cyan-100 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition hover:bg-slate-900 active:scale-[0.95]"
+          onClick={(event) => {
+            event.stopPropagation();
+            setCleaningModeActive(true);
+          }}
+          title="Modo limpieza"
+          type="button"
+        >
+          <BrushIcon className="h-7 w-7" />
+        </button>
+      ) : null}
+    </>
+  );
+
   if (!showSchedule) {
-    return <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />;
+    return (
+      <>
+        <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />
+        {cleaningModeControls}
+      </>
+    );
   }
 
   return (
+    <>
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-5 text-slate-100 sm:px-6 lg:px-8">
       <section className="animate-fade-in mb-4 rounded-xl border border-white/10 bg-slate-900/80 p-4 shadow-[0_18px_55px_rgba(0,0,0,0.35)] backdrop-blur sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -322,5 +354,7 @@ export default function App() {
         ) : null}
       </section>
     </main>
+    {cleaningModeControls}
+    </>
   );
 }
