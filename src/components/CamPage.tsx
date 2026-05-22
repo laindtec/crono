@@ -1,217 +1,70 @@
 import { useEffect, useRef, useState } from "react";
+import {
+  pollCamSignals,
+  registerCamClient,
+  rtcConfig,
+  sendCamSignal,
+  type SignalMessage,
+  unregisterCamClient,
+} from "../utils/camStreaming";
 
-type CamRole = "idle" | "publisher" | "viewer";
-type SignalMessage = {
-  from: string;
-  type: string;
-  payload: unknown;
-};
-
-const rtcConfig: RTCConfiguration = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-};
-
-async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers || {}),
-    },
-    ...options,
-  });
-
-  if (!response.ok) {
-    throw new Error(await response.text());
-  }
-
-  return response.json() as Promise<T>;
-}
-
-function sendSignal(from: string, to: string, type: string, payload: unknown) {
-  return apiRequest<{ ok: true }>("/api/cam/signals", {
-    method: "POST",
-    body: JSON.stringify({ from, to, type, payload }),
-  });
-}
+type ViewerState = "idle" | "connecting" | "active" | "offline" | "error";
 
 export default function CamPage() {
-  const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const clientIdRef = useRef<string | null>(null);
   const publisherIdRef = useRef<string | null>(null);
   const pollingActiveRef = useRef(false);
-  const publisherPeersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const viewerPeerRef = useRef<RTCPeerConnection | null>(null);
-
-  const [role, setRole] = useState<CamRole>("idle");
-  const [status, setStatus] = useState("Listo");
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const [viewerState, setViewerState] = useState<ViewerState>("idle");
+  const [status, setStatus] = useState("Listo para ver la cámara");
   const [errorMessage, setErrorMessage] = useState("");
-  const [viewerConnected, setViewerConnected] = useState(false);
 
   useEffect(() => {
-    return () => {
-      stopSession();
-    };
+    return () => stopViewer();
   }, []);
-
-  async function registerClient(nextRole: Exclude<CamRole, "idle">) {
-    const result = await apiRequest<{
-      clientId: string;
-      publisherId: string | null;
-      publisherAvailable: boolean;
-    }>("/api/cam/clients", {
-      method: "POST",
-      body: JSON.stringify({ role: nextRole }),
-    });
-
-    clientIdRef.current = result.clientId;
-    publisherIdRef.current = result.publisherId;
-    return result;
-  }
-
-  async function pollSignals(onMessages: (messages: SignalMessage[]) => Promise<void>) {
-    pollingActiveRef.current = true;
-
-    while (pollingActiveRef.current && clientIdRef.current) {
-      try {
-        const result = await apiRequest<{ messages: SignalMessage[]; publisherId: string | null }>(
-          `/api/cam/signals?clientId=${encodeURIComponent(clientIdRef.current)}`,
-        );
-
-        publisherIdRef.current = result.publisherId;
-        if (result.messages.length > 0) {
-          await onMessages(result.messages);
-        }
-      } catch (error) {
-        if (pollingActiveRef.current) {
-          setErrorMessage(error instanceof Error ? error.message : "Se perdió la conexión de cámara.");
-          await new Promise((resolve) => window.setTimeout(resolve, 1200));
-        }
-      }
-    }
-  }
-
-  async function startPublisher() {
-    setErrorMessage("");
-    setStatus("Pidiendo permisos de cámara y micrófono");
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-        video: {
-          facingMode: "environment",
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      });
-
-      localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-
-      await registerClient("publisher");
-      setRole("publisher");
-      setStatus("Transmitiendo desde esta tablet");
-
-      void pollSignals(async (messages) => {
-        for (const message of messages) {
-          await handlePublisherSignal(message);
-        }
-      });
-    } catch (error) {
-      setStatus("Inactivo");
-      setErrorMessage(error instanceof Error ? error.message : "No se pudo iniciar la transmisión.");
-      stopSession();
-    }
-  }
-
-  async function handlePublisherSignal(message: SignalMessage) {
-    const publisherId = clientIdRef.current;
-    const stream = localStreamRef.current;
-
-    if (!publisherId || !stream) {
-      return;
-    }
-
-    if (message.type === "viewer-ready") {
-      const viewerId = message.from;
-      const previousPeer = publisherPeersRef.current.get(viewerId);
-      previousPeer?.close();
-
-      const peer = new RTCPeerConnection(rtcConfig);
-      publisherPeersRef.current.set(viewerId, peer);
-
-      stream.getTracks().forEach((track) => peer.addTrack(track, stream));
-      peer.onicecandidate = (event) => {
-        if (event.candidate) {
-          void sendSignal(publisherId, viewerId, "candidate", event.candidate);
-        }
-      };
-      peer.onconnectionstatechange = () => {
-        if (["closed", "failed", "disconnected"].includes(peer.connectionState)) {
-          publisherPeersRef.current.delete(viewerId);
-          peer.close();
-        }
-      };
-
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-      await sendSignal(publisherId, viewerId, "offer", offer);
-      return;
-    }
-
-    const peer = publisherPeersRef.current.get(message.from);
-    if (!peer) {
-      return;
-    }
-
-    if (message.type === "answer") {
-      await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
-      return;
-    }
-
-    if (message.type === "candidate") {
-      await peer.addIceCandidate(message.payload as RTCIceCandidateInit);
-      return;
-    }
-
-    if (message.type === "viewer-left") {
-      peer.close();
-      publisherPeersRef.current.delete(message.from);
-    }
-  }
 
   async function startViewer() {
     setErrorMessage("");
-    setViewerConnected(false);
-    setStatus("Buscando tablet transmisora");
+    setViewerState("connecting");
+    setStatus("Buscando señal de la tablet");
 
     try {
-      const registration = await registerClient("viewer");
-      setRole("viewer");
+      const registration = await registerCamClient("viewer");
+      clientIdRef.current = registration.clientId;
+      publisherIdRef.current = registration.publisherId;
+      pollingActiveRef.current = true;
 
-      if (!registration.publisherId) {
-        setStatus("No hay una tablet transmitiendo");
-      } else {
+      if (registration.publisherId) {
         await announceViewerReady(registration.publisherId);
+      } else {
+        setViewerState("offline");
+        setStatus("La tablet todavía no está emitiendo");
       }
 
-      void pollSignals(async (messages) => {
-        for (const message of messages) {
-          await handleViewerSignal(message);
-        }
-      });
+      void pollCamSignals(
+        registration.clientId,
+        () => pollingActiveRef.current,
+        async (messages, publisherId) => {
+          if (publisherId && !publisherIdRef.current) {
+            await announceViewerReady(publisherId);
+          }
+
+          for (const message of messages) {
+            await handleSignal(message);
+          }
+        },
+        (error) => {
+          setViewerState("error");
+          setErrorMessage(error instanceof Error ? error.message : "Se perdió la conexión de cámara.");
+        },
+      );
     } catch (error) {
-      setStatus("Inactivo");
+      setViewerState("error");
+      setStatus("No se pudo abrir la cámara");
       setErrorMessage(error instanceof Error ? error.message : "No se pudo abrir la cámara remota.");
-      stopSession();
+      stopViewer();
     }
   }
 
@@ -222,11 +75,12 @@ export default function CamPage() {
     }
 
     publisherIdRef.current = publisherId;
+    setViewerState("connecting");
     setStatus("Conectando con la tablet");
-    await sendSignal(viewerId, publisherId, "viewer-ready", null);
+    await sendCamSignal(viewerId, publisherId, "viewer-ready", null);
   }
 
-  async function handleViewerSignal(message: SignalMessage) {
+  async function handleSignal(message: SignalMessage) {
     const viewerId = clientIdRef.current;
     if (!viewerId) {
       return;
@@ -234,9 +88,7 @@ export default function CamPage() {
 
     if (message.type === "offer") {
       publisherIdRef.current = message.from;
-
-      const previousPeer = viewerPeerRef.current;
-      previousPeer?.close();
+      peerRef.current?.close();
 
       const remoteStream = new MediaStream();
       remoteStreamRef.current = remoteStream;
@@ -245,21 +97,21 @@ export default function CamPage() {
       }
 
       const peer = new RTCPeerConnection(rtcConfig);
-      viewerPeerRef.current = peer;
+      peerRef.current = peer;
 
       peer.ontrack = (event) => {
         event.streams[0]?.getTracks().forEach((track) => remoteStream.addTrack(track));
-        setViewerConnected(true);
+        setViewerState("active");
         setStatus("Viendo cámara en vivo");
       };
       peer.onicecandidate = (event) => {
         if (event.candidate && publisherIdRef.current) {
-          void sendSignal(viewerId, publisherIdRef.current, "candidate", event.candidate);
+          void sendCamSignal(viewerId, publisherIdRef.current, "candidate", event.candidate);
         }
       };
       peer.onconnectionstatechange = () => {
         if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
-          setViewerConnected(false);
+          setViewerState("offline");
           setStatus("Conexión interrumpida");
         }
       };
@@ -267,54 +119,44 @@ export default function CamPage() {
       await peer.setRemoteDescription(message.payload as RTCSessionDescriptionInit);
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
-      await sendSignal(viewerId, message.from, "answer", answer);
+      await sendCamSignal(viewerId, message.from, "answer", answer);
       return;
     }
 
-    if (message.type === "candidate" && viewerPeerRef.current) {
-      await viewerPeerRef.current.addIceCandidate(message.payload as RTCIceCandidateInit);
+    if (message.type === "candidate" && peerRef.current) {
+      await peerRef.current.addIceCandidate(message.payload as RTCIceCandidateInit);
     }
   }
 
-  function stopSession() {
+  function stopViewer() {
     pollingActiveRef.current = false;
 
     const clientId = clientIdRef.current;
     const publisherId = publisherIdRef.current;
 
-    if (clientId && publisherId && role === "viewer") {
-      void sendSignal(clientId, publisherId, "viewer-left", null).catch(() => {});
+    if (clientId && publisherId) {
+      void sendCamSignal(clientId, publisherId, "viewer-left", null).catch(() => {});
     }
 
     if (clientId) {
-      void fetch(`/api/cam/clients/${encodeURIComponent(clientId)}`, {
-        credentials: "same-origin",
-        method: "DELETE",
-      }).catch(() => {});
+      void unregisterCamClient(clientId).catch(() => {});
     }
 
     clientIdRef.current = null;
     publisherIdRef.current = null;
-    publisherPeersRef.current.forEach((peer) => peer.close());
-    publisherPeersRef.current.clear();
-    viewerPeerRef.current?.close();
-    viewerPeerRef.current = null;
-    localStreamRef.current?.getTracks().forEach((track) => track.stop());
-    localStreamRef.current = null;
+    peerRef.current?.close();
+    peerRef.current = null;
     remoteStreamRef.current = null;
-
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
 
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
 
-    setRole("idle");
-    setStatus("Listo");
-    setViewerConnected(false);
+    setViewerState("idle");
+    setStatus("Listo para ver la cámara");
   }
+
+  const canStart = viewerState === "idle" || viewerState === "offline" || viewerState === "error";
 
   return (
     <main className="flex min-h-screen flex-col bg-black px-4 py-5 text-white sm:px-8">
@@ -336,68 +178,49 @@ export default function CamPage() {
         <div className="relative min-h-[56vh] overflow-hidden rounded-lg border border-white/10 bg-slate-950">
           <video
             autoPlay
-            className={`h-full min-h-[56vh] w-full object-cover ${role === "publisher" ? "" : "hidden"}`}
-            muted
-            playsInline
-            ref={localVideoRef}
-          />
-          <video
-            autoPlay
-            className={`h-full min-h-[56vh] w-full object-cover ${role === "viewer" ? "" : "hidden"}`}
+            className="h-full min-h-[56vh] w-full object-cover"
             controls
             playsInline
             ref={remoteVideoRef}
           />
 
-          {role === "idle" ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-950 p-6 text-center">
-              <div className="grid w-full max-w-3xl gap-4 sm:grid-cols-2">
+          {viewerState !== "active" ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/90 p-6 text-center">
+              <div className="max-w-xl">
+                <p className="text-2xl font-black text-white/75">{status}</p>
                 <button
-                  className="min-h-40 rounded-lg bg-cyan-300 px-6 text-2xl font-black text-slate-950 transition hover:bg-cyan-200 active:scale-[0.97]"
-                  onClick={startPublisher}
-                  type="button"
-                >
-                  Transmitir desde esta tablet
-                </button>
-                <button
-                  className="min-h-40 rounded-lg bg-white/[0.08] px-6 text-2xl font-black text-white transition hover:bg-white/[0.14] active:scale-[0.97]"
+                  className="mt-6 min-h-16 rounded-lg bg-cyan-300 px-6 text-xl font-black text-slate-950 transition hover:bg-cyan-200 active:scale-[0.97]"
+                  disabled={!canStart}
                   onClick={startViewer}
                   type="button"
                 >
                   Ver cámara en vivo
                 </button>
+                {errorMessage ? (
+                  <p className="mt-4 rounded-lg bg-rose-500/15 p-3 text-base font-bold text-rose-100">
+                    {errorMessage}
+                  </p>
+                ) : null}
               </div>
-            </div>
-          ) : null}
-
-          {role === "viewer" && !viewerConnected ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-slate-950/80 p-6 text-center">
-              <p className="text-2xl font-black text-white/70">{status}</p>
             </div>
           ) : null}
         </div>
 
         <aside className="rounded-lg border border-white/10 bg-slate-950 p-5">
-          <p className="text-sm font-black uppercase tracking-[0.2em] text-white/45">Modo</p>
+          <p className="text-sm font-black uppercase tracking-[0.2em] text-white/45">Visor remoto</p>
           <p className="mt-3 text-2xl font-black">
-            {role === "publisher" ? "Tablet emitiendo" : role === "viewer" ? "Visor remoto" : "Sin conexión"}
+            {viewerState === "active" ? "En vivo" : "Esperando señal"}
           </p>
 
           <div className="mt-8 space-y-3 text-base font-bold text-white/55">
-            <p>La tablet debe quedar abierta en esta página con “Transmitir desde esta tablet”.</p>
-            <p>Desde otro dispositivo entrás a la misma URL y elegís “Ver cámara en vivo”.</p>
+            <p>La tablet emite desde la pantalla principal de Crono con el botón Cámara.</p>
+            <p>Esta página solo visualiza audio y video desde otro dispositivo.</p>
           </div>
-
-          {errorMessage ? (
-            <p className="mt-6 rounded-lg bg-rose-500/15 p-3 text-base font-bold text-rose-100">
-              {errorMessage}
-            </p>
-          ) : null}
 
           <button
             className="mt-8 min-h-14 w-full rounded-lg bg-white/[0.08] px-4 text-lg font-black text-white transition hover:bg-white/[0.14] active:scale-[0.97]"
-            disabled={role === "idle"}
-            onClick={stopSession}
+            disabled={viewerState === "idle"}
+            onClick={stopViewer}
             type="button"
           >
             Detener

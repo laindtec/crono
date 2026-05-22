@@ -6,6 +6,7 @@ import {
   getWeatherLabel,
   type WeatherData,
 } from "../utils/weather";
+import CamPublisherControl from "./CamPublisherControl";
 import KitchenTimer from "./KitchenTimer";
 
 type HomeScreenProps = {
@@ -67,12 +68,13 @@ export default function HomeScreen({ onOpenSchedule }: HomeScreenProps) {
     >
       <section className="mx-auto flex min-h-[calc(100vh-48px)] w-full max-w-6xl flex-col justify-between">
         <div className="flex items-start justify-between gap-4">
-          <div onClick={(event) => event.stopPropagation()}>
+          <div className="flex items-start gap-3" onClick={(event) => event.stopPropagation()}>
             <KitchenTimer
               expanded={timerOpen}
               onClose={() => setTimerOpen(false)}
               onOpen={() => setTimerOpen(true)}
             />
+            <CamPublisherControl />
           </div>
 
           <button

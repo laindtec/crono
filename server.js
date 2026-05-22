@@ -217,12 +217,20 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
-app.use("/api/cam", requireCamAuth);
-
 app.post("/api/cam/clients", (req, res) => {
   cleanupCamClients();
 
   const role = req.body.role === "publisher" ? "publisher" : "viewer";
+
+  if (role === "viewer") {
+    requireCamAuth(req, res, () => createRegisteredCamClient(req, res, role));
+    return;
+  }
+
+  createRegisteredCamClient(req, res, role);
+});
+
+function createRegisteredCamClient(_req, res, role) {
   const clientId = createCamClient(role);
 
   if (role === "publisher") {
@@ -238,7 +246,7 @@ app.post("/api/cam/clients", (req, res) => {
     publisherId: camPublisherId,
     publisherAvailable: Boolean(camPublisherId),
   });
-});
+}
 
 app.delete("/api/cam/clients/:clientId", (req, res) => {
   removeCamClient(req.params.clientId);
