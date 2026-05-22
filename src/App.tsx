@@ -285,9 +285,7 @@ export default function App() {
 
   return (
     <AuthGate>
-      <div className="fixed left-32 top-6 z-30 sm:left-36">
-        <CamPublisherControl />
-      </div>
+      <CamPublisherControl />
       {!showSchedule ? (
         <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />
       ) : (

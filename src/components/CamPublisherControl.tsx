@@ -171,30 +171,13 @@ export default function CamPublisherControl() {
     setViewerCount(0);
   }
 
-  const label =
-    publisherState === "streaming"
-      ? "EN VIVO"
-      : publisherState === "standby"
-        ? "ESPERA"
-        : publisherState === "starting"
-          ? "..."
-          : "ERROR";
-
   return (
-    <div
-      aria-label="Estado de cámara remota"
-      className={`flex min-h-24 w-40 flex-col justify-center rounded-lg border p-4 text-left shadow-[0_18px_55px_rgba(0,0,0,0.35)] backdrop-blur sm:min-h-28 sm:w-56 ${
-        publisherState === "streaming"
-          ? "border-emerald-300/60 bg-emerald-300/15"
-          : "border-white/10 bg-white/[0.045]"
-      }`}
-      title={errorMessage || undefined}
-    >
-      <span className="text-xs font-black uppercase tracking-[0.18em] text-white/45">Cámara</span>
-      <span className="mt-2 text-2xl font-black text-white">{label}</span>
-      <span className="mt-1 text-sm font-bold text-white/55">
-        {publisherState === "streaming" ? `${viewerCount} mirando` : "Auto"}
-      </span>
-    </div>
+    <span
+      aria-hidden="true"
+      data-camera-state={publisherState}
+      data-error={errorMessage || undefined}
+      data-viewer-count={viewerCount}
+      hidden
+    />
   );
 }
