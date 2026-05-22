@@ -6,7 +6,6 @@ import {
   getWeatherLabel,
   type WeatherData,
 } from "../utils/weather";
-import CamPublisherControl from "./CamPublisherControl";
 import KitchenTimer from "./KitchenTimer";
 
 type HomeScreenProps = {
@@ -74,7 +73,6 @@ export default function HomeScreen({ onOpenSchedule }: HomeScreenProps) {
               onClose={() => setTimerOpen(false)}
               onOpen={() => setTimerOpen(true)}
             />
-            <CamPublisherControl />
           </div>
 
           <button

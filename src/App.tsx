@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import AuthGate from "./components/AuthGate";
 import CamPage from "./components/CamPage";
+import CamPublisherControl from "./components/CamPublisherControl";
 import CleaningMode, { BrushIcon } from "./components/CleaningMode";
 import DayCard from "./components/DayCard";
 import HomeScreen from "./components/HomeScreen";
@@ -282,17 +283,14 @@ export default function App() {
     </>
   );
 
-  if (!showSchedule) {
-    return (
-      <AuthGate>
-        <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />
-        {cleaningModeControls}
-      </AuthGate>
-    );
-  }
-
   return (
     <AuthGate>
+      <div className="fixed left-32 top-6 z-30 sm:left-36">
+        <CamPublisherControl />
+      </div>
+      {!showSchedule ? (
+        <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />
+      ) : (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-5 text-slate-100 sm:px-6 lg:px-8">
       <section className="animate-fade-in mb-4 rounded-xl border border-white/10 bg-slate-900/80 p-4 shadow-[0_18px_55px_rgba(0,0,0,0.35)] backdrop-blur sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -364,6 +362,7 @@ export default function App() {
         ) : null}
       </section>
     </main>
+      )}
     {cleaningModeControls}
     </AuthGate>
   );
