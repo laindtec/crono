@@ -9,6 +9,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = process.env.PORT || 3000;
 const distPath = path.join(__dirname, "dist");
+const camUsername = process.env.CAM_USERNAME;
+const camPassword = process.env.CAM_PASSWORD;
 
 const dbConfig = {
   host: process.env.DB_HOST,
@@ -38,6 +40,35 @@ if (hasDatabaseConfig) {
 }
 
 app.use(express.json());
+
+function requireCamAuth(req, res, next) {
+  if (!camUsername || !camPassword) {
+    res.status(503).send("Camera access is not configured.");
+    return;
+  }
+
+  const authHeader = req.get("authorization") || "";
+  const [scheme, encodedCredentials] = authHeader.split(" ");
+
+  if (scheme !== "Basic" || !encodedCredentials) {
+    res.set("WWW-Authenticate", 'Basic realm="Crono camera"');
+    res.status(401).send("Authentication required.");
+    return;
+  }
+
+  const credentials = Buffer.from(encodedCredentials, "base64").toString("utf8");
+  const separatorIndex = credentials.indexOf(":");
+  const username = credentials.slice(0, separatorIndex);
+  const password = credentials.slice(separatorIndex + 1);
+
+  if (username !== camUsername || password !== camPassword) {
+    res.set("WWW-Authenticate", 'Basic realm="Crono camera"');
+    res.status(401).send("Authentication required.");
+    return;
+  }
+
+  next();
+}
 
 function createChecklistKey(date, taskId, assignedTo, itemIndex) {
   return `${date}:${taskId}:${assignedTo}:${itemIndex}`;
@@ -256,6 +287,8 @@ app.post("/api/checks/reset-day", async (req, res) => {
     sendApiError(res, error);
   }
 });
+
+app.use("/cam", requireCamAuth);
 
 app.use(express.static(distPath));
 

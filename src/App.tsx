@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import CamPage from "./components/CamPage";
 import CleaningMode, { BrushIcon } from "./components/CleaningMode";
 import DayCard from "./components/DayCard";
 import HomeScreen from "./components/HomeScreen";
@@ -48,6 +49,10 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 }
 
 export default function App() {
+  if (window.location.pathname.startsWith("/cam")) {
+    return <CamPage />;
+  }
+
   const today = useMemo(() => getTodayISODate(), []);
   const [showSchedule, setShowSchedule] = useState(false);
   const [dayOffset, setDayOffset] = useState(0);
