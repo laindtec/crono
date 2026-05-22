@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import AuthGate from "./components/AuthGate";
 import CamPage from "./components/CamPage";
 import CleaningMode, { BrushIcon } from "./components/CleaningMode";
 import DayCard from "./components/DayCard";
@@ -50,7 +51,11 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 
 export default function App() {
   if (window.location.pathname.startsWith("/cam")) {
-    return <CamPage />;
+    return (
+      <AuthGate>
+        <CamPage />
+      </AuthGate>
+    );
   }
 
   const today = useMemo(() => getTodayISODate(), []);
@@ -279,15 +284,15 @@ export default function App() {
 
   if (!showSchedule) {
     return (
-      <>
+      <AuthGate>
         <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />
         {cleaningModeControls}
-      </>
+      </AuthGate>
     );
   }
 
   return (
-    <>
+    <AuthGate>
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-5 text-slate-100 sm:px-6 lg:px-8">
       <section className="animate-fade-in mb-4 rounded-xl border border-white/10 bg-slate-900/80 p-4 shadow-[0_18px_55px_rgba(0,0,0,0.35)] backdrop-blur sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -360,6 +365,6 @@ export default function App() {
       </section>
     </main>
     {cleaningModeControls}
-    </>
+    </AuthGate>
   );
 }

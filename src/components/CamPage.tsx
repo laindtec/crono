@@ -18,17 +18,18 @@ export default function CamPage() {
   const pollingActiveRef = useRef(false);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>("idle");
-  const [status, setStatus] = useState("Listo para ver la cámara");
+  const [status, setStatus] = useState("Listo para ver la camara");
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
+    void startViewer();
     return () => stopViewer();
   }, []);
 
   async function startViewer() {
     setErrorMessage("");
     setViewerState("connecting");
-    setStatus("Buscando señal de la tablet");
+    setStatus("Buscando senal de la tablet");
 
     try {
       const registration = await registerCamClient("viewer");
@@ -40,7 +41,7 @@ export default function CamPage() {
         await announceViewerReady(registration.publisherId);
       } else {
         setViewerState("offline");
-        setStatus("La tablet todavía no está emitiendo");
+        setStatus("La tablet todavia no esta en espera");
       }
 
       void pollCamSignals(
@@ -57,13 +58,13 @@ export default function CamPage() {
         },
         (error) => {
           setViewerState("error");
-          setErrorMessage(error instanceof Error ? error.message : "Se perdió la conexión de cámara.");
+          setErrorMessage(error instanceof Error ? error.message : "Se perdio la conexion de camara.");
         },
       );
     } catch (error) {
       setViewerState("error");
-      setStatus("No se pudo abrir la cámara");
-      setErrorMessage(error instanceof Error ? error.message : "No se pudo abrir la cámara remota.");
+      setStatus("No se pudo abrir la camara");
+      setErrorMessage(error instanceof Error ? error.message : "No se pudo abrir la camara remota.");
       stopViewer();
     }
   }
@@ -102,7 +103,7 @@ export default function CamPage() {
       peer.ontrack = (event) => {
         event.streams[0]?.getTracks().forEach((track) => remoteStream.addTrack(track));
         setViewerState("active");
-        setStatus("Viendo cámara en vivo");
+        setStatus("Viendo camara en vivo");
       };
       peer.onicecandidate = (event) => {
         if (event.candidate && publisherIdRef.current) {
@@ -112,7 +113,7 @@ export default function CamPage() {
       peer.onconnectionstatechange = () => {
         if (["failed", "disconnected", "closed"].includes(peer.connectionState)) {
           setViewerState("offline");
-          setStatus("Conexión interrumpida");
+          setStatus("Conexion interrumpida");
         }
       };
 
@@ -153,17 +154,15 @@ export default function CamPage() {
     }
 
     setViewerState("idle");
-    setStatus("Listo para ver la cámara");
+    setStatus("Listo para ver la camara");
   }
-
-  const canStart = viewerState === "idle" || viewerState === "offline" || viewerState === "error";
 
   return (
     <main className="flex min-h-screen flex-col bg-black px-4 py-5 text-white sm:px-8">
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4">
         <div>
           <p className="text-sm font-black uppercase tracking-[0.22em] text-white/45">Crono</p>
-          <h1 className="mt-2 text-3xl font-black sm:text-5xl">Cámara de cocina</h1>
+          <h1 className="mt-2 text-3xl font-black sm:text-5xl">Camara de cocina</h1>
           <p className="mt-2 text-lg font-bold text-white/50">{status}</p>
         </div>
         <a
@@ -188,14 +187,15 @@ export default function CamPage() {
             <div className="absolute inset-0 flex items-center justify-center bg-slate-950/90 p-6 text-center">
               <div className="max-w-xl">
                 <p className="text-2xl font-black text-white/75">{status}</p>
-                <button
-                  className="mt-6 min-h-16 rounded-lg bg-cyan-300 px-6 text-xl font-black text-slate-950 transition hover:bg-cyan-200 active:scale-[0.97]"
-                  disabled={!canStart}
-                  onClick={startViewer}
-                  type="button"
-                >
-                  Ver cámara en vivo
-                </button>
+                {viewerState === "offline" || viewerState === "error" ? (
+                  <button
+                    className="mt-6 min-h-16 rounded-lg bg-cyan-300 px-6 text-xl font-black text-slate-950 transition hover:bg-cyan-200 active:scale-[0.97]"
+                    onClick={startViewer}
+                    type="button"
+                  >
+                    Reintentar
+                  </button>
+                ) : null}
                 {errorMessage ? (
                   <p className="mt-4 rounded-lg bg-rose-500/15 p-3 text-base font-bold text-rose-100">
                     {errorMessage}
@@ -209,12 +209,12 @@ export default function CamPage() {
         <aside className="rounded-lg border border-white/10 bg-slate-950 p-5">
           <p className="text-sm font-black uppercase tracking-[0.2em] text-white/45">Visor remoto</p>
           <p className="mt-3 text-2xl font-black">
-            {viewerState === "active" ? "En vivo" : "Esperando señal"}
+            {viewerState === "active" ? "En vivo" : "Esperando senal"}
           </p>
 
           <div className="mt-8 space-y-3 text-base font-bold text-white/55">
-            <p>La tablet emite desde la pantalla principal de Crono con el botón Cámara.</p>
-            <p>Esta página solo visualiza audio y video desde otro dispositivo.</p>
+            <p>La tablet queda en espera desde la pantalla principal de Crono.</p>
+            <p>Esta pagina solo visualiza audio y video desde otro dispositivo.</p>
           </div>
 
           <button

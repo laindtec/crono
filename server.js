@@ -12,6 +12,8 @@ const port = process.env.PORT || 3000;
 const distPath = path.join(__dirname, "dist");
 const camUsername = process.env.CAM_USERNAME;
 const camPassword = process.env.CAM_PASSWORD;
+const camSessionSecret = process.env.CAM_SESSION_SECRET || camPassword || "crono-camera-session";
+const camSessionCookieName = "crono_cam_session";
 
 const dbConfig = {
   host: process.env.DB_HOST,
@@ -44,19 +46,64 @@ if (hasDatabaseConfig) {
 
 app.use(express.json());
 
-function requireCamAuth(req, res, next) {
-  if (!camUsername || !camPassword) {
-    res.status(503).send("Camera access is not configured.");
-    return;
+function parseCookies(req) {
+  const cookies = {};
+  const header = req.get("cookie") || "";
+
+  for (const part of header.split(";")) {
+    const [key, ...valueParts] = part.trim().split("=");
+    if (key) {
+      cookies[key] = decodeURIComponent(valueParts.join("="));
+    }
   }
 
+  return cookies;
+}
+
+function signCamSession(payload) {
+  return crypto.createHmac("sha256", camSessionSecret).update(payload).digest("base64url");
+}
+
+function createCamSessionToken(username) {
+  const payload = Buffer.from(
+    JSON.stringify({
+      username,
+      expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30,
+    }),
+  ).toString("base64url");
+
+  return `${payload}.${signCamSession(payload)}`;
+}
+
+function verifyCamSessionToken(token) {
+  if (!token || !token.includes(".")) {
+    return false;
+  }
+
+  const [payload, signature] = token.split(".");
+  if (signature !== signCamSession(payload)) {
+    return false;
+  }
+
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return session.username === camUsername && session.expiresAt > Date.now();
+  } catch {
+    return false;
+  }
+}
+
+function hasValidCamSession(req) {
+  const cookies = parseCookies(req);
+  return verifyCamSessionToken(cookies[camSessionCookieName]);
+}
+
+function hasValidBasicAuth(req) {
   const authHeader = req.get("authorization") || "";
   const [scheme, encodedCredentials] = authHeader.split(" ");
 
   if (scheme !== "Basic" || !encodedCredentials) {
-    res.set("WWW-Authenticate", 'Basic realm="Crono camera"');
-    res.status(401).send("Authentication required.");
-    return;
+    return false;
   }
 
   const credentials = Buffer.from(encodedCredentials, "base64").toString("utf8");
@@ -64,9 +111,38 @@ function requireCamAuth(req, res, next) {
   const username = credentials.slice(0, separatorIndex);
   const password = credentials.slice(separatorIndex + 1);
 
-  if (username !== camUsername || password !== camPassword) {
+  return username === camUsername && password === camPassword;
+}
+
+function setCamSessionCookie(req, res, username) {
+  const secure = req.secure || req.get("x-forwarded-proto") === "https";
+  const token = createCamSessionToken(username);
+
+  res.cookie(camSessionCookieName, token, {
+    httpOnly: true,
+    maxAge: 1000 * 60 * 60 * 24 * 30,
+    sameSite: "lax",
+    secure,
+  });
+}
+
+function requireCamConfig(res) {
+  if (!camUsername || !camPassword) {
+    res.status(503).json({ error: "Camera access is not configured." });
+    return false;
+  }
+
+  return true;
+}
+
+function requireCamAuth(req, res, next) {
+  if (!requireCamConfig(res)) {
+    return;
+  }
+
+  if (!hasValidCamSession(req) && !hasValidBasicAuth(req)) {
     res.set("WWW-Authenticate", 'Basic realm="Crono camera"');
-    res.status(401).send("Authentication required.");
+    res.status(401).json({ error: "Authentication required." });
     return;
   }
 
@@ -217,16 +293,42 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 
+app.get("/api/cam/session", (req, res) => {
+  if (!requireCamConfig(res)) {
+    return;
+  }
+
+  res.json({ authenticated: hasValidCamSession(req) || hasValidBasicAuth(req) });
+});
+
+app.post("/api/cam/login", (req, res) => {
+  if (!requireCamConfig(res)) {
+    return;
+  }
+
+  const username = String(req.body.username || "");
+  const password = String(req.body.password || "");
+
+  if (username !== camUsername || password !== camPassword) {
+    res.status(401).json({ error: "Usuario o contraseña incorrectos." });
+    return;
+  }
+
+  setCamSessionCookie(req, res, username);
+  res.json({ authenticated: true });
+});
+
+app.post("/api/cam/logout", (_req, res) => {
+  res.clearCookie(camSessionCookieName);
+  res.json({ authenticated: false });
+});
+
+app.use("/api/cam", requireCamAuth);
+
 app.post("/api/cam/clients", (req, res) => {
   cleanupCamClients();
 
   const role = req.body.role === "publisher" ? "publisher" : "viewer";
-
-  if (role === "viewer") {
-    requireCamAuth(req, res, () => createRegisteredCamClient(req, res, role));
-    return;
-  }
-
   createRegisteredCamClient(req, res, role);
 });
 
@@ -439,8 +541,6 @@ app.post("/api/checks/reset-day", async (req, res) => {
     sendApiError(res, error);
   }
 });
-
-app.use("/cam", requireCamAuth);
 
 app.use(express.static(distPath));
 
