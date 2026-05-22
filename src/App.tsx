@@ -20,6 +20,16 @@ const CLOCK_IDLE_TIMEOUT_MS = 120_000;
 
 type SlideDirection = "next" | "previous" | "today";
 
+function requestAppFullscreen() {
+  if (document.fullscreenElement || !document.documentElement.requestFullscreen) {
+    return;
+  }
+
+  document.documentElement.requestFullscreen({ navigationUI: "hide" }).catch(() => {
+    // Browsers usually require a user gesture before entering fullscreen.
+  });
+}
+
 function getDayContextLabel(dayOffset: number): string {
   if (dayOffset === 0) {
     return "Hoy";
@@ -58,6 +68,24 @@ export default function App() {
   useEffect(() => {
     cleanupPastDates(today);
   }, [today]);
+
+  useEffect(() => {
+    requestAppFullscreen();
+
+    function handleFirstInteraction() {
+      requestAppFullscreen();
+    }
+
+    window.addEventListener("pointerdown", handleFirstInteraction);
+    window.addEventListener("keydown", handleFirstInteraction);
+    window.addEventListener("touchstart", handleFirstInteraction, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", handleFirstInteraction);
+      window.removeEventListener("keydown", handleFirstInteraction);
+      window.removeEventListener("touchstart", handleFirstInteraction);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
