@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import mysql from "mysql2/promise";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,6 +26,8 @@ const hasDatabaseConfig = Boolean(
 );
 
 const memoryChecks = new Map();
+const camClients = new Map();
+let camPublisherId = null;
 let pool;
 let tableReady = false;
 
@@ -139,6 +142,64 @@ function sendApiError(res, error) {
   res.status(400).json({ error: error.message || "Request failed" });
 }
 
+function createCamClient(role) {
+  const id = crypto.randomUUID();
+  camClients.set(id, {
+    id,
+    role,
+    messages: [],
+    waiters: [],
+    updatedAt: Date.now(),
+  });
+
+  return id;
+}
+
+function removeCamClient(id) {
+  const client = camClients.get(id);
+  if (!client) {
+    return;
+  }
+
+  for (const waiter of client.waiters) {
+    clearTimeout(waiter.timer);
+    waiter.res.json({ messages: [] });
+  }
+
+  camClients.delete(id);
+
+  if (camPublisherId === id) {
+    camPublisherId = null;
+  }
+}
+
+function sendCamSignal(to, message) {
+  const client = camClients.get(to);
+  if (!client) {
+    return false;
+  }
+
+  client.updatedAt = Date.now();
+  client.messages.push({ ...message, sentAt: Date.now() });
+
+  for (const waiter of client.waiters.splice(0)) {
+    clearTimeout(waiter.timer);
+    waiter.res.json({ messages: client.messages.splice(0) });
+  }
+
+  return true;
+}
+
+function cleanupCamClients() {
+  const staleBefore = Date.now() - 90_000;
+
+  for (const [id, client] of camClients.entries()) {
+    if (client.updatedAt < staleBefore) {
+      removeCamClient(id);
+    }
+  }
+}
+
 app.get("/api/health", async (_req, res) => {
   try {
     if (pool) {
@@ -154,6 +215,89 @@ app.get("/api/health", async (_req, res) => {
   } catch (error) {
     sendApiError(res, error);
   }
+});
+
+app.use("/api/cam", requireCamAuth);
+
+app.post("/api/cam/clients", (req, res) => {
+  cleanupCamClients();
+
+  const role = req.body.role === "publisher" ? "publisher" : "viewer";
+  const clientId = createCamClient(role);
+
+  if (role === "publisher") {
+    if (camPublisherId && camPublisherId !== clientId) {
+      removeCamClient(camPublisherId);
+    }
+
+    camPublisherId = clientId;
+  }
+
+  res.json({
+    clientId,
+    publisherId: camPublisherId,
+    publisherAvailable: Boolean(camPublisherId),
+  });
+});
+
+app.delete("/api/cam/clients/:clientId", (req, res) => {
+  removeCamClient(req.params.clientId);
+  res.json({ ok: true });
+});
+
+app.post("/api/cam/signals", (req, res) => {
+  cleanupCamClients();
+
+  const from = requireString(req.body.from, "from");
+  const to = requireString(req.body.to, "to");
+  const type = requireString(req.body.type, "type");
+  const payload = req.body.payload ?? null;
+
+  const sender = camClients.get(from);
+  if (!sender) {
+    res.status(404).json({ error: "Sender is not registered." });
+    return;
+  }
+
+  sender.updatedAt = Date.now();
+  const delivered = sendCamSignal(to, { from, type, payload });
+
+  if (!delivered) {
+    res.status(404).json({ error: "Recipient is not connected." });
+    return;
+  }
+
+  res.json({ ok: true });
+});
+
+app.get("/api/cam/signals", (req, res) => {
+  cleanupCamClients();
+
+  const clientId = String(req.query.clientId || "");
+  const client = camClients.get(clientId);
+
+  if (!client) {
+    res.status(404).json({ error: "Client is not registered." });
+    return;
+  }
+
+  client.updatedAt = Date.now();
+
+  if (client.messages.length > 0) {
+    res.json({ messages: client.messages.splice(0), publisherId: camPublisherId });
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    const index = client.waiters.findIndex((waiter) => waiter.res === res);
+    if (index >= 0) {
+      client.waiters.splice(index, 1);
+    }
+
+    res.json({ messages: [], publisherId: camPublisherId });
+  }, 25_000);
+
+  client.waiters.push({ res, timer });
 });
 
 app.get("/api/checks", async (req, res) => {
