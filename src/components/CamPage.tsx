@@ -8,9 +8,25 @@ import {
   type SignalMessage,
   unregisterCamClient,
 } from "../utils/camStreaming";
+import {
+  formatBytes,
+  parseRecordingChannelMessage,
+  sendRecordingChannelMessage,
+  type RecordingEntry,
+} from "../utils/camRecordings";
 import { APP_TIME_ZONE } from "../utils/dateUtils";
 
 type ViewerState = "idle" | "connecting" | "active" | "offline" | "error";
+type MonitorPanel = "live" | "recordings";
+type RecordingTransfer = {
+  error: string;
+  id: string;
+  name: string;
+  progress: number;
+  size: number;
+  state: "idle" | "downloading" | "ready" | "error";
+  url: string;
+};
 
 function formatMonitorTime(date: Date): string {
   return new Intl.DateTimeFormat("es-AR", {
@@ -62,22 +78,45 @@ function getCameraErrorMessage(error: unknown, fallback: string) {
 export default function CamPage() {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const recordingChannelRef = useRef<RTCDataChannel | null>(null);
+  const recordingChunksRef = useRef<ArrayBuffer[]>([]);
   const clientIdRef = useRef<string | null>(null);
   const publisherIdRef = useRef<string | null>(null);
   const pollingActiveRef = useRef(false);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const [viewerState, setViewerState] = useState<ViewerState>("idle");
+  const [activePanel, setActivePanel] = useState<MonitorPanel>("live");
+  const [recordings, setRecordings] = useState<RecordingEntry[]>([]);
+  const [recordingStatus, setRecordingStatus] = useState("Esperando lista de la tablet");
+  const [recordingTransfer, setRecordingTransfer] = useState<RecordingTransfer>({
+    error: "",
+    id: "",
+    name: "",
+    progress: 0,
+    size: 0,
+    state: "idle",
+    url: "",
+  });
   const [status, setStatus] = useState("Listo para ver la camara");
   const [errorMessage, setErrorMessage] = useState("");
   const [now, setNow] = useState(() => new Date());
   const monitorTime = useMemo(() => formatMonitorTime(now), [now]);
   const monitorDate = useMemo(() => formatMonitorDate(now), [now]);
   const isLive = viewerState === "active";
+  const showingRecordings = activePanel === "recordings";
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (recordingTransfer.url) {
+        URL.revokeObjectURL(recordingTransfer.url);
+      }
+    };
+  }, [recordingTransfer.url]);
 
   useEffect(() => {
     void startViewer();
@@ -158,6 +197,11 @@ export default function CamPage() {
       const peer = new RTCPeerConnection(rtcConfig);
       peerRef.current = peer;
 
+      peer.ondatachannel = (event) => {
+        if (event.channel.label === "recordings") {
+          setupRecordingChannel(event.channel);
+        }
+      };
       peer.ontrack = (event) => {
         event.streams[0]?.getTracks().forEach((track) => remoteStream.addTrack(track));
         setViewerState("active");
@@ -203,6 +247,8 @@ export default function CamPage() {
 
     clientIdRef.current = null;
     publisherIdRef.current = null;
+    recordingChannelRef.current?.close();
+    recordingChannelRef.current = null;
     peerRef.current?.close();
     peerRef.current = null;
     remoteStreamRef.current = null;
@@ -215,11 +261,132 @@ export default function CamPage() {
     setStatus("Listo para ver la camara");
   }
 
+  function setupRecordingChannel(channel: RTCDataChannel) {
+    recordingChannelRef.current = channel;
+    channel.binaryType = "arraybuffer";
+    setRecordingStatus("Conectando con grabaciones");
+
+    channel.onopen = () => {
+      setRecordingStatus("Cargando grabaciones");
+      sendRecordingChannelMessage(channel, { type: "recordings-list-request" });
+    };
+
+    channel.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        recordingChunksRef.current.push(event.data);
+        return;
+      }
+
+      if (typeof event.data !== "string") {
+        return;
+      }
+
+      const message = parseRecordingChannelMessage(event.data);
+
+      if (!message) {
+        return;
+      }
+
+      if (message.type === "recordings-list") {
+        setRecordings(message.recordings);
+        setRecordingStatus(
+          message.recordings.length > 0 ? "Grabaciones disponibles en la tablet" : "Sin grabaciones guardadas",
+        );
+        return;
+      }
+
+      if (message.type === "recording-start") {
+        recordingChunksRef.current = [];
+        setRecordingTransfer((current) => {
+          if (current.url) {
+            URL.revokeObjectURL(current.url);
+          }
+
+          return {
+            error: "",
+            id: message.id,
+            name: message.name,
+            progress: 0,
+            size: message.size,
+            state: "downloading",
+            url: "",
+          };
+        });
+        setRecordingStatus("Recibiendo grabacion desde la tablet");
+        return;
+      }
+
+      if (message.type === "recording-progress") {
+        setRecordingTransfer((current) =>
+          current.id === message.id
+            ? { ...current, progress: message.size > 0 ? message.sent / message.size : 0, size: message.size }
+            : current,
+        );
+        return;
+      }
+
+      if (message.type === "recording-complete") {
+        const blob = new Blob(recordingChunksRef.current, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        recordingChunksRef.current = [];
+        setRecordingTransfer((current) => {
+          if (current.url) {
+            URL.revokeObjectURL(current.url);
+          }
+
+          return { ...current, progress: 1, state: "ready", url };
+        });
+        setRecordingStatus("Grabacion lista para reproducir");
+        return;
+      }
+
+      if (message.type === "recording-error") {
+        setRecordingTransfer((current) => ({ ...current, error: message.message, state: "error" }));
+        setRecordingStatus("No se pudo recibir la grabacion");
+      }
+    };
+
+    channel.onclose = () => {
+      if (recordingChannelRef.current === channel) {
+        recordingChannelRef.current = null;
+      }
+
+      setRecordingStatus("Grabaciones desconectadas");
+    };
+  }
+
+  function requestRecordingsList() {
+    const channel = recordingChannelRef.current;
+
+    if (!channel || channel.readyState !== "open") {
+      setRecordingStatus("Todavia no hay conexion con la tablet");
+      return;
+    }
+
+    setRecordingStatus("Actualizando lista");
+    sendRecordingChannelMessage(channel, { type: "recordings-list-request" });
+  }
+
+  function requestRecording(recording: RecordingEntry) {
+    const channel = recordingChannelRef.current;
+
+    if (!channel || channel.readyState !== "open") {
+      setRecordingStatus("Todavia no hay conexion con la tablet");
+      return;
+    }
+
+    setActivePanel("recordings");
+    setRecordingStatus("Solicitando grabacion a la tablet");
+    sendRecordingChannelMessage(channel, { type: "recording-request", id: recording.id });
+  }
+
   async function restartViewer() {
     stopViewer();
     await new Promise((resolve) => window.setTimeout(resolve, 150));
     await startViewer();
   }
+
+  const transferPercent = Math.round(recordingTransfer.progress * 100);
 
   return (
     <main className="min-h-screen bg-[#05070a] text-white">
@@ -255,12 +422,51 @@ export default function CamPage() {
         <div className="relative bg-black">
           <video
             autoPlay
-            className="h-[calc(100vh-18rem)] min-h-[26rem] w-full bg-black object-contain lg:h-[calc(100vh-4rem)]"
+            className={`h-[calc(100vh-18rem)] min-h-[26rem] w-full bg-black object-contain lg:h-[calc(100vh-4rem)] ${
+              showingRecordings ? "absolute inset-0 opacity-0" : ""
+            }`}
             controls
             playsInline
             ref={remoteVideoRef}
           />
 
+          {showingRecordings ? (
+            <div className="flex h-[calc(100vh-18rem)] min-h-[26rem] w-full items-center justify-center bg-black p-4 lg:h-[calc(100vh-4rem)]">
+              {recordingTransfer.url ? (
+                <video
+                  className="max-h-full w-full bg-black object-contain"
+                  controls
+                  playsInline
+                  src={recordingTransfer.url}
+                />
+              ) : (
+                <div className="w-full max-w-md rounded-lg border border-white/10 bg-[#0b1118] p-6 text-center shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
+                  <p className="text-sm font-black uppercase tracking-[0.22em] text-white/40">
+                    Grabaciones
+                  </p>
+                  <p className="mt-3 text-3xl font-black">
+                    {recordingTransfer.state === "downloading" ? `${transferPercent}%` : "Selecciona un bloque"}
+                  </p>
+                  <p className="mt-3 text-base font-bold text-white/55">{recordingStatus}</p>
+                  {recordingTransfer.state === "downloading" ? (
+                    <div className="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-cyan-300 transition-all"
+                        style={{ width: `${transferPercent}%` }}
+                      />
+                    </div>
+                  ) : null}
+                  {recordingTransfer.error ? (
+                    <p className="mt-4 rounded-lg bg-rose-500/15 p-3 text-sm font-bold text-rose-100">
+                      {recordingTransfer.error}
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {!showingRecordings ? (
           <div className="pointer-events-none absolute left-4 top-4 flex flex-wrap items-center gap-2">
             <span
               className={`rounded-md px-3 py-2 text-sm font-black uppercase tracking-[0.18em] ${
@@ -273,12 +479,15 @@ export default function CamPage() {
               CAM 01
             </span>
           </div>
+          ) : null}
 
+          {!showingRecordings ? (
           <div className="pointer-events-none absolute bottom-4 left-4 rounded-md bg-black/65 px-3 py-2 text-sm font-bold text-white/75">
             {status}
           </div>
+          ) : null}
 
-          {viewerState !== "active" ? (
+          {!showingRecordings && viewerState !== "active" ? (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-6 text-center">
               <div className="w-full max-w-md rounded-lg border border-white/10 bg-[#0b1118] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
                 <p className="text-sm font-black uppercase tracking-[0.22em] text-white/40">
@@ -306,12 +515,89 @@ export default function CamPage() {
         </div>
 
         <aside className="border-t border-white/10 bg-[#090d12] p-4 lg:border-l lg:border-t-0 lg:p-5">
+          <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg bg-white/[0.04] p-1">
+            <button
+              className={`min-h-11 rounded-md px-3 text-sm font-black transition ${
+                activePanel === "live" ? "bg-cyan-300 text-slate-950" : "text-white/70 hover:bg-white/[0.08]"
+              }`}
+              onClick={() => setActivePanel("live")}
+              type="button"
+            >
+              En vivo
+            </button>
+            <button
+              className={`min-h-11 rounded-md px-3 text-sm font-black transition ${
+                activePanel === "recordings" ? "bg-cyan-300 text-slate-950" : "text-white/70 hover:bg-white/[0.08]"
+              }`}
+              onClick={() => {
+                setActivePanel("recordings");
+                requestRecordingsList();
+              }}
+              type="button"
+            >
+              Grabaciones
+            </button>
+          </div>
+
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-1">
             <section className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40">Estado</p>
               <p className="mt-3 text-2xl font-black">{getConnectionLabel(viewerState)}</p>
               <p className="mt-2 text-sm font-bold text-white/50">{status}</p>
             </section>
+
+            {activePanel === "recordings" ? (
+              <section className="col-span-2 rounded-lg border border-white/10 bg-white/[0.04] p-4 lg:col-span-1">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40">Historial</p>
+                    <p className="mt-2 text-sm font-bold text-white/50">{recordingStatus}</p>
+                  </div>
+                  <button
+                    className="min-h-10 rounded-lg bg-white/[0.08] px-3 text-sm font-black text-white transition hover:bg-white/[0.14] active:scale-[0.97]"
+                    onClick={requestRecordingsList}
+                    type="button"
+                  >
+                    Actualizar
+                  </button>
+                </div>
+
+                {recordingTransfer.state === "downloading" ? (
+                  <div className="mt-4 rounded-lg bg-cyan-300/10 p-3">
+                    <div className="flex items-center justify-between text-sm font-black text-cyan-100">
+                      <span>Recibiendo</span>
+                      <span>{transferPercent}%</span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full bg-cyan-300 transition-all"
+                        style={{ width: `${transferPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-4 grid max-h-[22rem] gap-2 overflow-y-auto pr-1">
+                  {recordings.map((recording) => (
+                    <button
+                      className={`rounded-lg border p-3 text-left transition active:scale-[0.98] ${
+                        recordingTransfer.id === recording.id
+                          ? "border-cyan-300/70 bg-cyan-300/10"
+                          : "border-white/10 bg-black/20 hover:bg-white/[0.07]"
+                      }`}
+                      key={recording.id}
+                      onClick={() => requestRecording(recording)}
+                      type="button"
+                    >
+                      <span className="block text-base font-black text-white">{recording.label}</span>
+                      <span className="mt-1 block text-xs font-bold text-white/45">
+                        {formatBytes(recording.size)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
 
             <section className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40">Ubicación</p>
