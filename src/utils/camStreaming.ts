@@ -6,6 +6,16 @@ export type SignalMessage = {
   payload: unknown;
 };
 
+export class ApiRequestError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+  }
+}
+
 export const rtcConfig: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
@@ -21,7 +31,7 @@ export async function apiRequest<T>(url: string, options?: RequestInit): Promise
   });
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new ApiRequestError(response.status, await response.text());
   }
 
   return response.json() as Promise<T>;
@@ -74,4 +84,11 @@ export function unregisterCamClient(clientId: string) {
     credentials: "same-origin",
     method: "DELETE",
   });
+}
+
+export function heartbeatCamClient(clientId: string) {
+  return apiRequest<{ ok: true; publisherId: string | null; publisherAvailable: boolean }>(
+    `/api/cam/clients/${encodeURIComponent(clientId)}/heartbeat`,
+    { method: "POST" },
+  );
 }

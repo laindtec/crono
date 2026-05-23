@@ -333,7 +333,7 @@ function sendCamSignal(to, message) {
 }
 
 function cleanupCamClients() {
-  const staleBefore = Date.now() - 90_000;
+  const staleBefore = Date.now() - 5 * 60_000;
 
   for (const [id, client] of camClients.entries()) {
     if (client.updatedAt < staleBefore) {
@@ -421,6 +421,23 @@ function createRegisteredCamClient(_req, res, role) {
     publisherAvailable: Boolean(camPublisherId),
   });
 }
+
+app.post("/api/cam/clients/:clientId/heartbeat", (req, res) => {
+  cleanupCamClients();
+
+  const client = camClients.get(req.params.clientId);
+  if (!client) {
+    res.status(404).json({ error: "Client is not registered." });
+    return;
+  }
+
+  client.updatedAt = Date.now();
+  res.json({
+    ok: true,
+    publisherId: camPublisherId,
+    publisherAvailable: Boolean(camPublisherId),
+  });
+});
 
 app.delete("/api/cam/clients/:clientId", (req, res) => {
   removeCamClient(req.params.clientId);

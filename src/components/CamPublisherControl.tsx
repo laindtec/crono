@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ApiRequestError,
+  heartbeatCamClient,
   pollCamSignals,
   registerCamClient,
   rtcConfig,
@@ -13,56 +15,103 @@ type PublisherState = "starting" | "standby" | "streaming" | "error";
 export default function CamPublisherControl() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const clientIdRef = useRef<string | null>(null);
+  const heartbeatTimerRef = useRef<number | null>(null);
   const pollingActiveRef = useRef(false);
+  const registeringRef = useRef(false);
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const [publisherState, setPublisherState] = useState<PublisherState>("starting");
   const [viewerCount, setViewerCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
 
+  const stopPublishing = useCallback(() => {
+    pollingActiveRef.current = false;
+
+    if (heartbeatTimerRef.current !== null) {
+      window.clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+
+    if (clientIdRef.current) {
+      void unregisterCamClient(clientIdRef.current).catch(() => {});
+    }
+
+    clientIdRef.current = null;
+    peersRef.current.forEach((peer) => peer.close());
+    peersRef.current.clear();
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localStreamRef.current = null;
+    setViewerCount(0);
+  }, []);
+
+  const registerPublisher = useCallback(async () => {
+    if (registeringRef.current) {
+      return;
+    }
+
+    registeringRef.current = true;
+    setPublisherState("starting");
+
+    try {
+      if (clientIdRef.current) {
+        void unregisterCamClient(clientIdRef.current).catch(() => {});
+      }
+
+      pollingActiveRef.current = false;
+      const registration = await registerCamClient("publisher");
+      clientIdRef.current = registration.clientId;
+      pollingActiveRef.current = true;
+      setErrorMessage("");
+      setPublisherState("standby");
+
+      void pollCamSignals(
+        registration.clientId,
+        () => pollingActiveRef.current && clientIdRef.current === registration.clientId,
+        async (messages) => {
+          for (const message of messages) {
+            await handleSignal(message);
+          }
+        },
+        (error) => {
+          if (error instanceof ApiRequestError && error.status === 404) {
+            void registerPublisher();
+            return;
+          }
+
+          setPublisherState("error");
+          setErrorMessage(error instanceof Error ? error.message : "Se perdio la conexion de camara.");
+        },
+      );
+    } catch (error) {
+      setPublisherState("error");
+      setErrorMessage(error instanceof Error ? error.message : "No se pudo preparar la camara.");
+    } finally {
+      registeringRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
-    let active = true;
+    void registerPublisher();
 
-    async function startStandby() {
-      try {
-        const registration = await registerCamClient("publisher");
+    heartbeatTimerRef.current = window.setInterval(() => {
+      const clientId = clientIdRef.current;
+      if (!clientId) {
+        void registerPublisher();
+        return;
+      }
 
-        if (!active) {
-          void unregisterCamClient(registration.clientId).catch(() => {});
+      heartbeatCamClient(clientId).catch((error) => {
+        if (error instanceof ApiRequestError && error.status === 404) {
+          void registerPublisher();
           return;
         }
 
-        clientIdRef.current = registration.clientId;
-        pollingActiveRef.current = true;
-        setPublisherState("standby");
+        setPublisherState("error");
+        setErrorMessage(error instanceof Error ? error.message : "No se pudo sostener la espera de camara.");
+      });
+    }, 30_000);
 
-        void pollCamSignals(
-          registration.clientId,
-          () => pollingActiveRef.current,
-          async (messages) => {
-            for (const message of messages) {
-              await handleSignal(message);
-            }
-          },
-          (error) => {
-            setPublisherState("error");
-            setErrorMessage(error instanceof Error ? error.message : "Se perdió la conexión de cámara.");
-          },
-        );
-      } catch (error) {
-        if (active) {
-          setPublisherState("error");
-          setErrorMessage(error instanceof Error ? error.message : "No se pudo preparar la cámara.");
-        }
-      }
-    }
-
-    void startStandby();
-
-    return () => {
-      active = false;
-      stopPublishing();
-    };
-  }, []);
+    return () => stopPublishing();
+  }, [registerPublisher, stopPublishing]);
 
   async function getLocalStream() {
     if (localStreamRef.current) {
@@ -154,21 +203,6 @@ export default function CamPublisherControl() {
       setViewerCount(peersRef.current.size);
       stopLocalStreamIfIdle();
     }
-  }
-
-  function stopPublishing() {
-    pollingActiveRef.current = false;
-
-    if (clientIdRef.current) {
-      void unregisterCamClient(clientIdRef.current).catch(() => {});
-    }
-
-    clientIdRef.current = null;
-    peersRef.current.forEach((peer) => peer.close());
-    peersRef.current.clear();
-    localStreamRef.current?.getTracks().forEach((track) => track.stop());
-    localStreamRef.current = null;
-    setViewerCount(0);
   }
 
   return (
