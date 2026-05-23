@@ -9,8 +9,26 @@ import {
   type SignalMessage,
   unregisterCamClient,
 } from "../utils/camStreaming";
+import {
+  getRecordingsDirectory,
+  hasReadWritePermission,
+  pickRecordingsDirectory,
+  supportsDirectoryPicker,
+  type CronoDirectoryHandle,
+} from "../utils/fileSystemAccess";
 
 type PublisherState = "starting" | "standby" | "streaming" | "error";
+type RecordingState = "unsupported" | "needs-folder" | "starting" | "recording" | "error";
+
+const RECORDING_SEGMENT_MS = 20 * 60 * 1000;
+const RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000;
+const MAX_RECORDING_FILES = 72;
+const RECORDING_PREFIX = "crono-cocina";
+const RECORDER_MIME_TYPES = [
+  "video/webm;codecs=vp9,opus",
+  "video/webm;codecs=vp8,opus",
+  "video/webm",
+];
 
 function getCameraErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiRequestError && error.status === 429) {
@@ -20,14 +38,44 @@ function getCameraErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function getRecorderMimeType() {
+  return RECORDER_MIME_TYPES.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function formatRecordingFileName(date: Date) {
+  const parts = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "America/Argentina/Buenos_Aires",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+    .format(date)
+    .replace(" ", "_")
+    .replaceAll(":", "-");
+
+  return `${RECORDING_PREFIX}_${parts}.webm`;
+}
+
 export default function CamPublisherControl() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const clientIdRef = useRef<string | null>(null);
   const heartbeatTimerRef = useRef<number | null>(null);
+  const recordingSegmentTimerRef = useRef<number | null>(null);
   const pollingActiveRef = useRef(false);
   const registeringRef = useRef(false);
+  const recordingEnabledRef = useRef(false);
+  const directoryRef = useRef<CronoDirectoryHandle | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingWritableRef = useRef<FileSystemWritableFileStream | null>(null);
+  const recordingWriteChainRef = useRef<Promise<void>>(Promise.resolve());
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const [publisherState, setPublisherState] = useState<PublisherState>("starting");
+  const [recordingState, setRecordingState] = useState<RecordingState>("starting");
+  const [recordingMessage, setRecordingMessage] = useState("Preparando grabacion local");
   const [viewerCount, setViewerCount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -46,9 +94,87 @@ export default function CamPublisherControl() {
     clientIdRef.current = null;
     peersRef.current.forEach((peer) => peer.close());
     peersRef.current.clear();
+    stopCurrentRecording();
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     setViewerCount(0);
+  }, []);
+
+  async function configureRecordingsDirectory() {
+    try {
+      const directory = await pickRecordingsDirectory();
+      const allowed = await hasReadWritePermission(directory);
+
+      if (!allowed) {
+        setRecordingState("needs-folder");
+        setRecordingMessage("La carpeta no quedo autorizada");
+        return;
+      }
+
+      directoryRef.current = directory;
+      recordingEnabledRef.current = true;
+      setRecordingState("starting");
+      setRecordingMessage("Iniciando grabacion local");
+      await startRecordingSegment();
+    } catch (error) {
+      setRecordingState("error");
+      setRecordingMessage(error instanceof Error ? error.message : "No se pudo elegir la carpeta");
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadRecordingDirectory() {
+      if (!supportsDirectoryPicker() || typeof MediaRecorder === "undefined") {
+        setRecordingState("unsupported");
+        setRecordingMessage("Grabacion local no disponible en este navegador");
+        return;
+      }
+
+      try {
+        const directory = await getRecordingsDirectory();
+
+        if (!active) {
+          return;
+        }
+
+        if (!directory) {
+          setRecordingState("needs-folder");
+          setRecordingMessage("Elegir carpeta para guardar las ultimas 24 horas");
+          return;
+        }
+
+        const allowed = await hasReadWritePermission(directory);
+
+        if (!active) {
+          return;
+        }
+
+        if (!allowed) {
+          setRecordingState("needs-folder");
+          setRecordingMessage("Toca para reautorizar la carpeta de grabaciones");
+          return;
+        }
+
+        directoryRef.current = directory;
+        recordingEnabledRef.current = true;
+        await startRecordingSegment();
+      } catch (error) {
+        if (active) {
+          setRecordingState("error");
+          setRecordingMessage(error instanceof Error ? error.message : "No se pudo preparar la grabacion");
+        }
+      }
+    }
+
+    void loadRecordingDirectory();
+
+    return () => {
+      active = false;
+      recordingEnabledRef.current = false;
+      stopCurrentRecording();
+    };
   }, []);
 
   const registerPublisher = useCallback(async () => {
@@ -143,13 +269,130 @@ export default function CamPublisherControl() {
   }
 
   function stopLocalStreamIfIdle() {
-    if (peersRef.current.size > 0) {
+    if (peersRef.current.size > 0 || mediaRecorderRef.current?.state === "recording") {
       return;
     }
 
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localStreamRef.current = null;
     setPublisherState("standby");
+  }
+
+  async function purgeOldRecordings(directory: CronoDirectoryHandle) {
+    const now = Date.now();
+    const recordings: Array<{ name: string; lastModified: number }> = [];
+
+    for await (const [name, handle] of directory.entries()) {
+      if (handle.kind !== "file" || !name.startsWith(RECORDING_PREFIX) || !name.endsWith(".webm")) {
+        continue;
+      }
+
+      const file = await handle.getFile();
+      recordings.push({ name, lastModified: file.lastModified });
+
+      if (now - file.lastModified > RECORDING_RETENTION_MS) {
+        await directory.removeEntry(name).catch(() => {});
+      }
+    }
+
+    recordings.sort((left, right) => left.lastModified - right.lastModified);
+    const overflow = recordings.length - MAX_RECORDING_FILES;
+
+    for (let index = 0; index < overflow; index += 1) {
+      await directory.removeEntry(recordings[index].name).catch(() => {});
+    }
+  }
+
+  async function stopCurrentRecording() {
+    if (recordingSegmentTimerRef.current !== null) {
+      window.clearTimeout(recordingSegmentTimerRef.current);
+      recordingSegmentTimerRef.current = null;
+    }
+
+    const recorder = mediaRecorderRef.current;
+    mediaRecorderRef.current = null;
+
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+  }
+
+  async function closeRecordingFile() {
+    const writable = recordingWritableRef.current;
+    recordingWritableRef.current = null;
+
+    if (writable) {
+      await recordingWriteChainRef.current;
+      await writable.close();
+    }
+  }
+
+  async function startRecordingSegment() {
+    const directory = directoryRef.current;
+
+    if (!recordingEnabledRef.current || !directory) {
+      return;
+    }
+
+    try {
+      const stream = await getLocalStream();
+      const fileHandle = await directory.getFileHandle(formatRecordingFileName(new Date()), { create: true });
+      const writable = await fileHandle.createWritable();
+      const mimeType = getRecorderMimeType();
+      const recorder = new MediaRecorder(stream, {
+        ...(mimeType ? { mimeType } : {}),
+        audioBitsPerSecond: 64_000,
+        videoBitsPerSecond: 1_000_000,
+      });
+
+      recordingWritableRef.current = writable;
+      mediaRecorderRef.current = recorder;
+      setRecordingState("recording");
+      setRecordingMessage("Grabando en bloques de 20 minutos");
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0 && recordingWritableRef.current) {
+          const writable = recordingWritableRef.current;
+          recordingWriteChainRef.current = recordingWriteChainRef.current.then(() =>
+            writable.write(event.data).then(() => undefined),
+          );
+        }
+      };
+
+      recorder.onerror = () => {
+        setRecordingState("error");
+        setRecordingMessage("Se interrumpio la grabacion local");
+      };
+
+      recorder.onstop = () => {
+        void closeRecordingFile()
+          .then(() => purgeOldRecordings(directory))
+          .then(() => {
+            if (recordingEnabledRef.current) {
+              void startRecordingSegment();
+              return;
+            }
+
+            stopLocalStreamIfIdle();
+          })
+          .catch((error) => {
+            setRecordingState("error");
+            setRecordingMessage(error instanceof Error ? error.message : "No se pudo guardar la grabacion");
+          });
+      };
+
+      recorder.start(30_000);
+      recordingSegmentTimerRef.current = window.setTimeout(() => {
+        if (mediaRecorderRef.current === recorder && recorder.state === "recording") {
+          recorder.stop();
+        }
+      }, RECORDING_SEGMENT_MS);
+    } catch (error) {
+      setRecordingState("error");
+      setRecordingMessage(error instanceof Error ? error.message : "No se pudo iniciar la grabacion");
+      await closeRecordingFile().catch(() => {});
+      stopLocalStreamIfIdle();
+    }
   }
 
   async function handleSignal(message: SignalMessage) {
@@ -214,12 +457,37 @@ export default function CamPublisherControl() {
   }
 
   return (
-    <span
-      aria-hidden="true"
-      data-camera-state={publisherState}
-      data-error={errorMessage || undefined}
-      data-viewer-count={viewerCount}
-      hidden
-    />
+    <>
+      <span
+        aria-hidden="true"
+        data-camera-state={publisherState}
+        data-error={errorMessage || undefined}
+        data-recording-state={recordingState}
+        data-viewer-count={viewerCount}
+        hidden
+      />
+      {recordingState !== "unsupported" ? (
+        <button
+          aria-label="Configurar grabacion local"
+          className={`fixed left-5 top-40 z-40 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[0.68rem] font-black leading-none shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition active:scale-[0.96] ${
+            recordingState === "recording"
+              ? "border-rose-300/40 bg-slate-950/90 text-white"
+              : "border-amber-200/35 bg-amber-300 text-slate-950"
+          }`}
+          onClick={configureRecordingsDirectory}
+          title={recordingMessage}
+          type="button"
+        >
+          <span
+            className={`mb-1 h-2.5 w-2.5 rounded-full ${
+              recordingState === "recording"
+                ? "bg-rose-400 shadow-[0_0_18px_rgba(251,113,133,0.95)]"
+                : "bg-slate-950"
+            }`}
+          />
+          REC
+        </button>
+      ) : null}
+    </>
   );
 }
