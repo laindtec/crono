@@ -241,7 +241,7 @@ export default function App() {
       {!cleaningModeActive ? (
         <button
           aria-label="Activar modo limpieza"
-          className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-slate-950/90 text-cyan-100 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition hover:bg-slate-900 active:scale-[0.95]"
+          className="fixed bottom-28 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-slate-950/90 text-cyan-100 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition hover:bg-slate-900 active:scale-[0.95]"
           onClick={(event) => {
             event.stopPropagation();
             setCleaningModeActive(true);
@@ -249,7 +249,7 @@ export default function App() {
           title="Modo limpieza"
           type="button"
         >
-          <BrushIcon className="h-7 w-7" />
+          <BrushIcon className="h-8 w-8" />
         </button>
       ) : null}
     </>
