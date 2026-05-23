@@ -14,6 +14,8 @@ const camUsername = process.env.CAM_USERNAME;
 const camPassword = process.env.CAM_PASSWORD;
 const camSessionSecret = process.env.CAM_SESSION_SECRET || camPassword || "crono-camera-session";
 const camSessionCookieName = "crono_cam_session";
+const camLoginAttempts = new Map();
+const camApiAttempts = new Map();
 
 const dbConfig = {
   host: process.env.DB_HOST,
@@ -44,7 +46,34 @@ if (hasDatabaseConfig) {
   console.warn("MySQL env vars are missing. API will use in-memory storage for this process.");
 }
 
-app.use(express.json());
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+app.use((req, res, next) => {
+  res.set({
+    "Cache-Control": req.path.startsWith("/api/cam") ? "no-store" : "no-cache",
+    "Content-Security-Policy": [
+      "default-src 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "media-src 'self' blob:",
+      "connect-src 'self' https://api.open-meteo.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'none'",
+    ].join("; "),
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+  });
+
+  next();
+});
+
+app.use(express.json({ limit: "64kb" }));
 
 function parseCookies(req) {
   const cookies = {};
@@ -58,6 +87,38 @@ function parseCookies(req) {
   }
 
   return cookies;
+}
+
+function getClientIp(req) {
+  return req.ip || req.socket.remoteAddress || "unknown";
+}
+
+function isRateLimited(bucket, key, limit, windowMs) {
+  const now = Date.now();
+  const current = bucket.get(key);
+
+  if (!current || current.resetAt <= now) {
+    bucket.set(key, { count: 1, resetAt: now + windowMs });
+    return false;
+  }
+
+  current.count += 1;
+  return current.count > limit;
+}
+
+function constantTimeEqual(actual, expected) {
+  if (typeof actual !== "string" || typeof expected !== "string") {
+    return false;
+  }
+
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+
+  if (actualBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 function signCamSession(payload) {
@@ -81,7 +142,7 @@ function verifyCamSessionToken(token) {
   }
 
   const [payload, signature] = token.split(".");
-  if (signature !== signCamSession(payload)) {
+  if (!constantTimeEqual(signature, signCamSession(payload))) {
     return false;
   }
 
@@ -111,7 +172,7 @@ function hasValidBasicAuth(req) {
   const username = credentials.slice(0, separatorIndex);
   const password = credentials.slice(separatorIndex + 1);
 
-  return username === camUsername && password === camPassword;
+  return constantTimeEqual(username, camUsername) && constantTimeEqual(password, camPassword);
 }
 
 function setCamSessionCookie(req, res, username) {
@@ -137,6 +198,11 @@ function requireCamConfig(res) {
 
 function requireCamAuth(req, res, next) {
   if (!requireCamConfig(res)) {
+    return;
+  }
+
+  if (isRateLimited(camApiAttempts, getClientIp(req), 240, 60_000)) {
+    res.status(429).json({ error: "Too many requests." });
     return;
   }
 
@@ -306,10 +372,16 @@ app.post("/api/cam/login", (req, res) => {
     return;
   }
 
+  const ip = getClientIp(req);
+  if (isRateLimited(camLoginAttempts, ip, 8, 10 * 60_000)) {
+    res.status(429).json({ error: "Demasiados intentos. Probá de nuevo en unos minutos." });
+    return;
+  }
+
   const username = String(req.body.username || "");
   const password = String(req.body.password || "");
 
-  if (username !== camUsername || password !== camPassword) {
+  if (!constantTimeEqual(username, camUsername) || !constantTimeEqual(password, camPassword)) {
     res.status(401).json({ error: "Usuario o contraseña incorrectos." });
     return;
   }
@@ -319,7 +391,7 @@ app.post("/api/cam/login", (req, res) => {
 });
 
 app.post("/api/cam/logout", (_req, res) => {
-  res.clearCookie(camSessionCookieName);
+  res.clearCookie(camSessionCookieName, { sameSite: "lax" });
   res.json({ authenticated: false });
 });
 
