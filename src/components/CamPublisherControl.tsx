@@ -12,6 +12,14 @@ import {
 
 type PublisherState = "starting" | "standby" | "streaming" | "error";
 
+function getCameraErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiRequestError && error.status === 429) {
+    return "Demasiadas reconexiones. Reintentando en unos segundos.";
+  }
+
+  return error instanceof Error ? error.message : fallback;
+}
+
 export default function CamPublisherControl() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const clientIdRef = useRef<string | null>(null);
@@ -78,12 +86,12 @@ export default function CamPublisherControl() {
           }
 
           setPublisherState("error");
-          setErrorMessage(error instanceof Error ? error.message : "Se perdio la conexion de camara.");
+          setErrorMessage(getCameraErrorMessage(error, "Se perdio la conexion de camara."));
         },
       );
     } catch (error) {
       setPublisherState("error");
-      setErrorMessage(error instanceof Error ? error.message : "No se pudo preparar la camara.");
+      setErrorMessage(getCameraErrorMessage(error, "No se pudo preparar la camara."));
     } finally {
       registeringRef.current = false;
     }
@@ -106,7 +114,7 @@ export default function CamPublisherControl() {
         }
 
         setPublisherState("error");
-        setErrorMessage(error instanceof Error ? error.message : "No se pudo sostener la espera de camara.");
+        setErrorMessage(getCameraErrorMessage(error, "No se pudo sostener la espera de camara."));
       });
     }, 30_000);
 

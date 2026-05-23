@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ApiRequestError,
   pollCamSignals,
   registerCamClient,
   rtcConfig,
@@ -48,6 +49,14 @@ function getConnectionLabel(viewerState: ViewerState): string {
   }
 
   return "En espera";
+}
+
+function getCameraErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiRequestError && error.status === 429) {
+    return "Demasiadas reconexiones. Reintentando en unos segundos.";
+  }
+
+  return error instanceof Error ? error.message : fallback;
 }
 
 export default function CamPage() {
@@ -107,13 +116,13 @@ export default function CamPage() {
         },
         (error) => {
           setViewerState("error");
-          setErrorMessage(error instanceof Error ? error.message : "Se perdio la conexion de camara.");
+          setErrorMessage(getCameraErrorMessage(error, "Se perdio la conexion de camara."));
         },
       );
     } catch (error) {
       setViewerState("error");
       setStatus("No se pudo abrir la camara");
-      setErrorMessage(error instanceof Error ? error.message : "No se pudo abrir la camara remota.");
+      setErrorMessage(getCameraErrorMessage(error, "No se pudo abrir la camara remota."));
       stopViewer();
     }
   }

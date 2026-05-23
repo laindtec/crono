@@ -20,6 +20,21 @@ export const rtcConfig: RTCConfiguration = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
+async function readApiErrorMessage(response: Response) {
+  const body = await response.text();
+
+  if (!body) {
+    return `HTTP ${response.status}`;
+  }
+
+  try {
+    const parsed = JSON.parse(body) as { error?: string };
+    return parsed.error || body;
+  } catch {
+    return body;
+  }
+}
+
 export async function apiRequest<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -31,7 +46,7 @@ export async function apiRequest<T>(url: string, options?: RequestInit): Promise
   });
 
   if (!response.ok) {
-    throw new ApiRequestError(response.status, await response.text());
+    throw new ApiRequestError(response.status, await readApiErrorMessage(response));
   }
 
   return response.json() as Promise<T>;
@@ -73,7 +88,8 @@ export async function pollCamSignals(
     } catch (error) {
       if (isActive()) {
         onError(error);
-        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        const retryDelay = error instanceof ApiRequestError && error.status === 429 ? 10_000 : 1200;
+        await new Promise((resolve) => window.setTimeout(resolve, retryDelay));
       }
     }
   }

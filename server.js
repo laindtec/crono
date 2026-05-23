@@ -196,19 +196,39 @@ function requireCamConfig(res) {
   return true;
 }
 
+function shouldRateLimitCamApi(req) {
+  if (req.method === "GET" && req.path === "/signals") {
+    return false;
+  }
+
+  if (req.method === "POST" && /^\/clients\/[^/]+\/heartbeat$/.test(req.path)) {
+    return false;
+  }
+
+  return true;
+}
+
 function requireCamAuth(req, res, next) {
   if (!requireCamConfig(res)) {
     return;
   }
 
-  if (isRateLimited(camApiAttempts, getClientIp(req), 240, 60_000)) {
-    res.status(429).json({ error: "Too many requests." });
+  const ip = getClientIp(req);
+  const isAuthenticated = hasValidCamSession(req) || hasValidBasicAuth(req);
+
+  if (!isAuthenticated) {
+    if (isRateLimited(camApiAttempts, ip, 240, 60_000)) {
+      res.status(429).json({ error: "Too many requests." });
+      return;
+    }
+
+    res.set("WWW-Authenticate", 'Basic realm="Crono camera"');
+    res.status(401).json({ error: "Authentication required." });
     return;
   }
 
-  if (!hasValidCamSession(req) && !hasValidBasicAuth(req)) {
-    res.set("WWW-Authenticate", 'Basic realm="Crono camera"');
-    res.status(401).json({ error: "Authentication required." });
+  if (shouldRateLimitCamApi(req) && isRateLimited(camApiAttempts, ip, 1200, 60_000)) {
+    res.status(429).json({ error: "Too many requests." });
     return;
   }
 
