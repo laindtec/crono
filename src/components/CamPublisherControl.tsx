@@ -68,6 +68,7 @@ export default function CamPublisherControl() {
   const pollingActiveRef = useRef(false);
   const registeringRef = useRef(false);
   const recordingEnabledRef = useRef(false);
+  const recordingSetupPromptedRef = useRef(false);
   const directoryRef = useRef<CronoDirectoryHandle | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingWritableRef = useRef<FileSystemWritableFileStream | null>(null);
@@ -176,6 +177,29 @@ export default function CamPublisherControl() {
       stopCurrentRecording();
     };
   }, []);
+
+  useEffect(() => {
+    if (recordingState !== "needs-folder") {
+      return undefined;
+    }
+
+    function promptForRecordingsDirectory() {
+      if (recordingSetupPromptedRef.current) {
+        return;
+      }
+
+      recordingSetupPromptedRef.current = true;
+      void configureRecordingsDirectory();
+    }
+
+    window.addEventListener("pointerdown", promptForRecordingsDirectory, { once: true });
+    window.addEventListener("keydown", promptForRecordingsDirectory, { once: true });
+
+    return () => {
+      window.removeEventListener("pointerdown", promptForRecordingsDirectory);
+      window.removeEventListener("keydown", promptForRecordingsDirectory);
+    };
+  }, [recordingState]);
 
   const registerPublisher = useCallback(async () => {
     if (registeringRef.current) {
@@ -462,32 +486,11 @@ export default function CamPublisherControl() {
         aria-hidden="true"
         data-camera-state={publisherState}
         data-error={errorMessage || undefined}
+        data-recording-message={recordingMessage || undefined}
         data-recording-state={recordingState}
         data-viewer-count={viewerCount}
         hidden
       />
-      {recordingState !== "unsupported" ? (
-        <button
-          aria-label="Configurar grabacion local"
-          className={`fixed left-5 top-40 z-40 flex h-14 w-14 flex-col items-center justify-center rounded-full border text-[0.68rem] font-black leading-none shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition active:scale-[0.96] ${
-            recordingState === "recording"
-              ? "border-rose-300/40 bg-slate-950/90 text-white"
-              : "border-amber-200/35 bg-amber-300 text-slate-950"
-          }`}
-          onClick={configureRecordingsDirectory}
-          title={recordingMessage}
-          type="button"
-        >
-          <span
-            className={`mb-1 h-2.5 w-2.5 rounded-full ${
-              recordingState === "recording"
-                ? "bg-rose-400 shadow-[0_0_18px_rgba(251,113,133,0.95)]"
-                : "bg-slate-950"
-            }`}
-          />
-          REC
-        </button>
-      ) : null}
     </>
   );
 }
