@@ -1,3 +1,5 @@
+import { APP_TIME_ZONE } from "./dateUtils";
+
 export type DailyWeather = {
   date: string;
   max: number;
@@ -44,8 +46,11 @@ export function getWeatherIcon(code: number, isDay = true): string {
 }
 
 export function formatWeatherDay(date: string): string {
-  const parsedDate = new Date(`${date}T12:00:00`);
-  const weekday = new Intl.DateTimeFormat("es-AR", { weekday: "short" }).format(parsedDate);
+  const parsedDate = new Date(`${date}T12:00:00-03:00`);
+  const weekday = new Intl.DateTimeFormat("es-AR", {
+    timeZone: APP_TIME_ZONE,
+    weekday: "short",
+  }).format(parsedDate);
   return `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)}`;
 }
 

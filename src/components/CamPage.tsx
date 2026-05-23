@@ -7,11 +7,13 @@ import {
   type SignalMessage,
   unregisterCamClient,
 } from "../utils/camStreaming";
+import { APP_TIME_ZONE } from "../utils/dateUtils";
 
 type ViewerState = "idle" | "connecting" | "active" | "offline" | "error";
 
 function formatMonitorTime(date: Date): string {
   return new Intl.DateTimeFormat("es-AR", {
+    timeZone: APP_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -21,6 +23,7 @@ function formatMonitorTime(date: Date): string {
 
 function formatMonitorDate(date: Date): string {
   return new Intl.DateTimeFormat("es-AR", {
+    timeZone: APP_TIME_ZONE,
     day: "2-digit",
     month: "2-digit",
     year: "numeric",

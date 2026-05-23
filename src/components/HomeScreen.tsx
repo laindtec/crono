@@ -6,6 +6,7 @@ import {
   getWeatherLabel,
   type WeatherData,
 } from "../utils/weather";
+import { APP_TIME_ZONE } from "../utils/dateUtils";
 import KitchenTimer from "./KitchenTimer";
 
 type HomeScreenProps = {
@@ -14,6 +15,7 @@ type HomeScreenProps = {
 
 function formatClock(date: Date): string {
   return new Intl.DateTimeFormat("es-AR", {
+    timeZone: APP_TIME_ZONE,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -22,6 +24,7 @@ function formatClock(date: Date): string {
 
 function formatDate(date: Date): string {
   return new Intl.DateTimeFormat("es-AR", {
+    timeZone: APP_TIME_ZONE,
     weekday: "long",
     day: "numeric",
     month: "long",
