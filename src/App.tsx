@@ -24,6 +24,14 @@ const CLOCK_IDLE_TIMEOUT_MS = 120_000;
 
 type SlideDirection = "next" | "previous" | "today";
 
+type BatteryManagerLike = EventTarget & {
+  charging: boolean;
+};
+
+type BatteryNavigator = Navigator & {
+  getBattery?: () => Promise<BatteryManagerLike>;
+};
+
 function FlashlightIcon({ className = "h-6 w-6" }: { className?: string }) {
   return (
     <svg
@@ -146,6 +154,53 @@ export default function App() {
       window.removeEventListener("keydown", resetIdleTimer);
     };
   }, [showSchedule]);
+
+  useEffect(() => {
+    const getBattery = (navigator as BatteryNavigator).getBattery;
+
+    if (!getBattery) {
+      return undefined;
+    }
+
+    let active = true;
+    let battery: BatteryManagerLike | null = null;
+    let wasCharging: boolean | null = null;
+
+    function handleChargingChange() {
+      if (!battery) {
+        return;
+      }
+
+      if (wasCharging === true && !battery.charging) {
+        setFlashlightActive(true);
+      }
+
+      wasCharging = battery.charging;
+    }
+
+    getBattery
+      .call(navigator)
+      .then((nextBattery) => {
+        if (!active) {
+          return;
+        }
+
+        battery = nextBattery;
+        wasCharging = battery.charging;
+
+        if (!battery.charging) {
+          setFlashlightActive(true);
+        }
+
+        battery.addEventListener("chargingchange", handleChargingChange);
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      battery?.removeEventListener("chargingchange", handleChargingChange);
+    };
+  }, []);
 
   function refreshSchedule() {
     setRefreshToken((current) => current + 1);
