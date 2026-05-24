@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 import {
   ApiRequestError,
   pollCamSignals,
@@ -77,6 +77,7 @@ function getCameraErrorMessage(error: unknown, fallback: string) {
 
 export default function CamPage() {
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const recordingVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const recordingChannelRef = useRef<RTCDataChannel | null>(null);
   const recordingChunksRef = useRef<ArrayBuffer[]>([]);
@@ -380,6 +381,28 @@ export default function CamPage() {
     sendRecordingChannelMessage(channel, { type: "recording-request", id: recording.id });
   }
 
+  function repairWebmDuration(event: SyntheticEvent<HTMLVideoElement>) {
+    const video = event.currentTarget;
+
+    if (Number.isFinite(video.duration) && video.duration > 0) {
+      return;
+    }
+
+    const restoreStart = () => {
+      video.removeEventListener("timeupdate", restoreStart);
+      video.currentTime = 0;
+      video.pause();
+    };
+
+    video.addEventListener("timeupdate", restoreStart);
+
+    try {
+      video.currentTime = Number.MAX_SAFE_INTEGER;
+    } catch {
+      video.removeEventListener("timeupdate", restoreStart);
+    }
+  }
+
   async function restartViewer() {
     stopViewer();
     await new Promise((resolve) => window.setTimeout(resolve, 150));
@@ -436,7 +459,10 @@ export default function CamPage() {
                 <video
                   className="max-h-full w-full bg-black object-contain"
                   controls
+                  onLoadedMetadata={repairWebmDuration}
                   playsInline
+                  preload="metadata"
+                  ref={recordingVideoRef}
                   src={recordingTransfer.url}
                 />
               ) : (

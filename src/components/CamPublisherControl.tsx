@@ -33,8 +33,8 @@ const RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_RECORDING_FILES = 72;
 const RECORDING_CHUNK_SIZE = 256 * 1024;
 const RECORDER_MIME_TYPES = [
-  "video/webm;codecs=vp9,opus",
   "video/webm;codecs=vp8,opus",
+  "video/webm;codecs=vp9,opus",
   "video/webm",
 ];
 
@@ -79,6 +79,7 @@ export default function CamPublisherControl() {
   const recordingSetupCheckedRef = useRef(false);
   const recordingSetupPromptedRef = useRef(false);
   const directoryRef = useRef<CronoDirectoryHandle | null>(null);
+  const currentRecordingNameRef = useRef<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingWritableRef = useRef<FileSystemWritableFileStream | null>(null);
   const recordingWriteChainRef = useRef<Promise<void>>(Promise.resolve());
@@ -347,6 +348,10 @@ export default function CamPublisherControl() {
         continue;
       }
 
+      if (name === currentRecordingNameRef.current) {
+        continue;
+      }
+
       const file = await handle.getFile();
       recordings.push({ name, lastModified: file.lastModified });
 
@@ -374,6 +379,10 @@ export default function CamPublisherControl() {
 
     for await (const [name, handle] of directory.entries()) {
       if (handle.kind !== "file" || !name.startsWith(RECORDING_PREFIX) || !name.endsWith(".webm")) {
+        continue;
+      }
+
+      if (name === currentRecordingNameRef.current) {
         continue;
       }
 
@@ -413,6 +422,14 @@ export default function CamPublisherControl() {
     const channel = recordingChannelsRef.current.get(viewerId);
 
     if (!directory || !channel || channel.readyState !== "open") {
+      return;
+    }
+
+    if (recordingId === currentRecordingNameRef.current) {
+      sendRecordingChannelMessage(channel, {
+        type: "recording-error",
+        message: "Ese bloque todavia se esta grabando",
+      });
       return;
     }
 
@@ -499,6 +516,7 @@ export default function CamPublisherControl() {
 
     const recorder = mediaRecorderRef.current;
     mediaRecorderRef.current = null;
+    currentRecordingNameRef.current = null;
 
     if (recorder && recorder.state !== "inactive") {
       recorder.stop();
@@ -524,7 +542,8 @@ export default function CamPublisherControl() {
 
     try {
       const stream = await getLocalStream();
-      const fileHandle = await directory.getFileHandle(formatRecordingFileName(new Date()), { create: true });
+      const recordingName = formatRecordingFileName(new Date());
+      const fileHandle = await directory.getFileHandle(recordingName, { create: true });
       const writable = await fileHandle.createWritable();
       const mimeType = getRecorderMimeType();
       const recorder = new MediaRecorder(stream, {
@@ -534,6 +553,7 @@ export default function CamPublisherControl() {
       });
 
       recordingWritableRef.current = writable;
+      currentRecordingNameRef.current = recordingName;
       mediaRecorderRef.current = recorder;
       setRecordingState("recording");
       setRecordingMessage("Grabando en bloques de 20 minutos");
