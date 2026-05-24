@@ -191,7 +191,11 @@ export default function CamPublisherControl() {
   }, []);
 
   useEffect(() => {
-    if (!supportsDirectoryPicker() || typeof MediaRecorder === "undefined") {
+    if (
+      recordingState !== "needs-folder" ||
+      !supportsDirectoryPicker() ||
+      typeof MediaRecorder === "undefined"
+    ) {
       return undefined;
     }
 
@@ -657,6 +661,29 @@ export default function CamPublisherControl() {
         data-viewer-count={viewerCount}
         hidden
       />
+      {recordingState === "needs-folder" || recordingState === "error" ? (
+        <section className="fixed bottom-5 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-amber-200/35 bg-slate-950/95 p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur">
+          <p className="text-sm font-black uppercase tracking-[0.18em] text-amber-200/80">
+            Grabaciones 24h
+          </p>
+          <p className="mt-2 text-base font-bold text-white/70">{recordingMessage}</p>
+          <button
+            className="mt-4 min-h-12 w-full rounded-lg bg-amber-300 px-4 text-base font-black text-slate-950 transition hover:bg-amber-200 active:scale-[0.97]"
+            onClick={configureRecordingsDirectory}
+            type="button"
+          >
+            Configurar carpeta
+          </button>
+        </section>
+      ) : null}
+      {recordingState === "unsupported" ? (
+        <section className="fixed bottom-5 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg border border-rose-200/25 bg-slate-950/95 p-4 text-white shadow-[0_24px_80px_rgba(0,0,0,0.55)] backdrop-blur">
+          <p className="text-sm font-black uppercase tracking-[0.18em] text-rose-100/80">
+            Grabaciones no disponibles
+          </p>
+          <p className="mt-2 text-base font-bold text-white/70">{recordingMessage}</p>
+        </section>
+      ) : null}
     </>
   );
 }
