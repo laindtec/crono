@@ -91,6 +91,7 @@ export default function App() {
   const [slideDirection, setSlideDirection] = useState<SlideDirection>("today");
   const [cleaningModeActive, setCleaningModeActive] = useState(false);
   const [flashlightActive, setFlashlightActive] = useState(false);
+  const automaticFlashlightRef = useRef(false);
   const swipeStartX = useRef<number | null>(null);
 
   const selectedDate = useMemo(() => getDateFromTodayOffset(dayOffset), [dayOffset]);
@@ -166,13 +167,31 @@ export default function App() {
     let battery: BatteryManagerLike | null = null;
     let wasCharging: boolean | null = null;
 
+    function turnOnEmergencyFlashlight() {
+      automaticFlashlightRef.current = true;
+      setFlashlightActive(true);
+    }
+
+    function turnOffEmergencyFlashlight() {
+      if (!automaticFlashlightRef.current) {
+        return;
+      }
+
+      automaticFlashlightRef.current = false;
+      setFlashlightActive(false);
+    }
+
     function handleChargingChange() {
       if (!battery) {
         return;
       }
 
       if (wasCharging === true && !battery.charging) {
-        setFlashlightActive(true);
+        turnOnEmergencyFlashlight();
+      }
+
+      if (wasCharging === false && battery.charging) {
+        turnOffEmergencyFlashlight();
       }
 
       wasCharging = battery.charging;
@@ -189,7 +208,7 @@ export default function App() {
         wasCharging = battery.charging;
 
         if (!battery.charging) {
-          setFlashlightActive(true);
+          turnOnEmergencyFlashlight();
         }
 
         battery.addEventListener("chargingchange", handleChargingChange);
@@ -339,15 +358,19 @@ export default function App() {
         <button
           aria-label="Apagar linterna"
           className="fixed inset-0 z-[70] cursor-pointer bg-white"
-          onClick={() => setFlashlightActive(false)}
+          onClick={() => {
+            automaticFlashlightRef.current = false;
+            setFlashlightActive(false);
+          }}
           type="button"
         />
       ) : (
         <button
           aria-label="Activar linterna"
-          className="fixed bottom-5 left-5 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-slate-950/90 text-amber-100 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition hover:bg-slate-900 active:scale-[0.95]"
+          className="fixed bottom-24 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-slate-950/90 text-amber-100 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition hover:bg-slate-900 active:scale-[0.95]"
           onClick={(event) => {
             event.stopPropagation();
+            automaticFlashlightRef.current = false;
             setFlashlightActive(true);
           }}
           title="Linterna"
