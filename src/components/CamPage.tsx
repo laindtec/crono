@@ -446,7 +446,7 @@ export default function CamPage() {
           <video
             autoPlay
             className={`h-[calc(100vh-18rem)] min-h-[26rem] w-full bg-black object-contain lg:h-[calc(100vh-4rem)] ${
-              showingRecordings ? "absolute inset-0 opacity-0" : ""
+              showingRecordings ? "pointer-events-none absolute inset-0 opacity-0" : ""
             }`}
             controls
             playsInline
@@ -454,7 +454,7 @@ export default function CamPage() {
           />
 
           {showingRecordings ? (
-            <div className="flex h-[calc(100vh-18rem)] min-h-[26rem] w-full items-center justify-center bg-black p-4 lg:h-[calc(100vh-4rem)]">
+            <div className="relative z-10 flex h-[calc(100vh-18rem)] min-h-[26rem] w-full items-center justify-center bg-black p-4 lg:h-[calc(100vh-4rem)]">
               {recordingTransfer.url ? (
                 <video
                   className="max-h-full w-full bg-black object-contain"
