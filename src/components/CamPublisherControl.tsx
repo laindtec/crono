@@ -320,8 +320,9 @@ export default function CamPublisherControl() {
       },
       video: {
         facingMode: "environment",
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
+        width: { ideal: 960 },
+        height: { ideal: 540 },
+        frameRate: { ideal: 24, min: 15 },
       },
     });
 
@@ -549,7 +550,7 @@ export default function CamPublisherControl() {
       const recorder = new MediaRecorder(stream, {
         ...(mimeType ? { mimeType } : {}),
         audioBitsPerSecond: 64_000,
-        videoBitsPerSecond: 1_000_000,
+        videoBitsPerSecond: 2_000_000,
       });
 
       recordingWritableRef.current = writable;
