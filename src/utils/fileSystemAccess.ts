@@ -76,7 +76,13 @@ export async function getRecordingsDirectory() {
 export async function hasReadWritePermission(directory: CronoDirectoryHandle) {
   const descriptor: FileSystemHandlePermissionDescriptor = { mode: "readwrite" };
 
-  if (directory.queryPermission && (await directory.queryPermission(descriptor)) === "granted") {
+  return Boolean(directory.queryPermission && (await directory.queryPermission(descriptor)) === "granted");
+}
+
+export async function requestReadWritePermission(directory: CronoDirectoryHandle) {
+  const descriptor: FileSystemHandlePermissionDescriptor = { mode: "readwrite" };
+
+  if (await hasReadWritePermission(directory)) {
     return true;
   }
 

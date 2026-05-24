@@ -20,6 +20,7 @@ import {
   getRecordingsDirectory,
   hasReadWritePermission,
   pickRecordingsDirectory,
+  requestReadWritePermission,
   supportsDirectoryPicker,
   type CronoDirectoryHandle,
 } from "../utils/fileSystemAccess";
@@ -75,6 +76,7 @@ export default function CamPublisherControl() {
   const pollingActiveRef = useRef(false);
   const registeringRef = useRef(false);
   const recordingEnabledRef = useRef(false);
+  const recordingSetupCheckedRef = useRef(false);
   const recordingSetupPromptedRef = useRef(false);
   const directoryRef = useRef<CronoDirectoryHandle | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -114,7 +116,7 @@ export default function CamPublisherControl() {
   async function configureRecordingsDirectory() {
     try {
       const directory = await pickRecordingsDirectory();
-      const allowed = await hasReadWritePermission(directory);
+      const allowed = await requestReadWritePermission(directory);
 
       if (!allowed) {
         setRecordingState("needs-folder");
@@ -189,27 +191,47 @@ export default function CamPublisherControl() {
   }, []);
 
   useEffect(() => {
-    if (recordingState !== "needs-folder") {
+    if (!supportsDirectoryPicker() || typeof MediaRecorder === "undefined") {
       return undefined;
     }
 
-    function promptForRecordingsDirectory() {
+    async function ensureRecordingSetupAfterInteraction() {
+      if (recordingSetupCheckedRef.current || recordingEnabledRef.current) {
+        return;
+      }
+
+      recordingSetupCheckedRef.current = true;
+      const directory = await getRecordingsDirectory();
+
+      if (directory && (await requestReadWritePermission(directory))) {
+        directoryRef.current = directory;
+        recordingEnabledRef.current = true;
+        setRecordingState("starting");
+        setRecordingMessage("Iniciando grabacion local");
+        await startRecordingSegment();
+        return;
+      }
+
       if (recordingSetupPromptedRef.current) {
         return;
       }
 
       recordingSetupPromptedRef.current = true;
-      void configureRecordingsDirectory();
+      await configureRecordingsDirectory();
     }
 
-    window.addEventListener("pointerdown", promptForRecordingsDirectory, { once: true });
-    window.addEventListener("keydown", promptForRecordingsDirectory, { once: true });
+    function promptForRecordingsDirectory() {
+      void ensureRecordingSetupAfterInteraction();
+    }
+
+    window.addEventListener("pointerdown", promptForRecordingsDirectory, { capture: true, once: true });
+    window.addEventListener("keydown", promptForRecordingsDirectory, { capture: true, once: true });
 
     return () => {
-      window.removeEventListener("pointerdown", promptForRecordingsDirectory);
-      window.removeEventListener("keydown", promptForRecordingsDirectory);
+      window.removeEventListener("pointerdown", promptForRecordingsDirectory, { capture: true });
+      window.removeEventListener("keydown", promptForRecordingsDirectory, { capture: true });
     };
-  }, [recordingState]);
+  }, []);
 
   const registerPublisher = useCallback(async () => {
     if (registeringRef.current) {
