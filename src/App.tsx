@@ -24,6 +24,28 @@ const CLOCK_IDLE_TIMEOUT_MS = 120_000;
 
 type SlideDirection = "next" | "previous" | "today";
 
+function FlashlightIcon({ className = "h-6 w-6" }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2.3"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M9 2h6" />
+      <path d="M10 6h4" />
+      <path d="M8 10h8l-1 11H9L8 10Z" />
+      <path d="M9 6h6v4H9V6Z" />
+      <path d="M12 14v3" />
+    </svg>
+  );
+}
+
 function getDayContextLabel(dayOffset: number): string {
   if (dayOffset === 0) {
     return "Hoy";
@@ -60,6 +82,7 @@ export default function App() {
   );
   const [slideDirection, setSlideDirection] = useState<SlideDirection>("today");
   const [cleaningModeActive, setCleaningModeActive] = useState(false);
+  const [flashlightActive, setFlashlightActive] = useState(false);
   const swipeStartX = useRef<number | null>(null);
 
   const selectedDate = useMemo(() => getDateFromTodayOffset(dayOffset), [dayOffset]);
@@ -255,6 +278,32 @@ export default function App() {
     </>
   );
 
+  const flashlightControls = (
+    <>
+      {flashlightActive ? (
+        <button
+          aria-label="Apagar linterna"
+          className="fixed inset-0 z-[70] cursor-pointer bg-white"
+          onClick={() => setFlashlightActive(false)}
+          type="button"
+        />
+      ) : (
+        <button
+          aria-label="Activar linterna"
+          className="fixed bottom-5 left-5 z-40 flex h-14 w-14 items-center justify-center rounded-full border border-white/15 bg-slate-950/90 text-amber-100 shadow-[0_18px_50px_rgba(0,0,0,0.45)] backdrop-blur transition hover:bg-slate-900 active:scale-[0.95]"
+          onClick={(event) => {
+            event.stopPropagation();
+            setFlashlightActive(true);
+          }}
+          title="Linterna"
+          type="button"
+        >
+          <FlashlightIcon className="h-7 w-7" />
+        </button>
+      )}
+    </>
+  );
+
   return (
     <AuthGate>
       <CamPublisherControl />
@@ -334,6 +383,7 @@ export default function App() {
     </main>
       )}
     {cleaningModeControls}
+    {flashlightControls}
     </AuthGate>
   );
 }

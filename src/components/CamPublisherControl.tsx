@@ -28,9 +28,9 @@ import {
 type PublisherState = "starting" | "standby" | "streaming" | "error";
 type RecordingState = "unsupported" | "needs-folder" | "starting" | "recording" | "error";
 
-const RECORDING_SEGMENT_MS = 20 * 60 * 1000;
+const RECORDING_SEGMENT_MS = 30 * 60 * 1000;
 const RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000;
-const MAX_RECORDING_FILES = 72;
+const MAX_RECORDING_FILES = 48;
 const RECORDING_CHUNK_SIZE = 256 * 1024;
 const RECORDER_MIME_TYPES = [
   "video/webm;codecs=vp8,opus",
@@ -557,7 +557,7 @@ export default function CamPublisherControl() {
       currentRecordingNameRef.current = recordingName;
       mediaRecorderRef.current = recorder;
       setRecordingState("recording");
-      setRecordingMessage("Grabando en bloques de 20 minutos");
+      setRecordingMessage("Grabando en bloques de 30 minutos");
 
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0 && recordingWritableRef.current) {
