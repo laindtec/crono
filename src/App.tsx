@@ -328,6 +328,11 @@ export default function App() {
     setDragOffset(0);
   }
 
+  const handleRemoteFlashlightChange = useCallback((active: boolean) => {
+    automaticFlashlightRef.current = false;
+    setFlashlightActive(active);
+  }, []);
+
   const finishCleaningMode = useCallback(() => {
     setCleaningModeActive(false);
   }, []);
@@ -384,7 +389,10 @@ export default function App() {
 
   return (
     <AuthGate>
-      <CamPublisherControl />
+      <CamPublisherControl
+        flashlightActive={flashlightActive}
+        onRemoteFlashlightChange={handleRemoteFlashlightChange}
+      />
       {!showSchedule ? (
         <HomeScreen onOpenSchedule={() => setShowSchedule(true)} />
       ) : (

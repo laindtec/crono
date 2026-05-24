@@ -28,6 +28,11 @@ import {
 type PublisherState = "starting" | "standby" | "streaming" | "error";
 type RecordingState = "unsupported" | "needs-folder" | "starting" | "recording" | "error";
 
+type CamPublisherControlProps = {
+  flashlightActive: boolean;
+  onRemoteFlashlightChange: (active: boolean) => void;
+};
+
 const RECORDING_SEGMENT_MS = 30 * 60 * 1000;
 const RECORDING_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_RECORDING_FILES = 48;
@@ -68,7 +73,10 @@ function formatRecordingFileName(date: Date) {
   return `${RECORDING_PREFIX}_${parts}.webm`;
 }
 
-export default function CamPublisherControl() {
+export default function CamPublisherControl({
+  flashlightActive,
+  onRemoteFlashlightChange,
+}: CamPublisherControlProps) {
   const localStreamRef = useRef<MediaStream | null>(null);
   const clientIdRef = useRef<string | null>(null);
   const heartbeatTimerRef = useRef<number | null>(null);
@@ -308,6 +316,18 @@ export default function CamPublisherControl() {
     return () => stopPublishing();
   }, [registerPublisher, stopPublishing]);
 
+  useEffect(() => {
+    const publisherId = clientIdRef.current;
+
+    if (!publisherId) {
+      return;
+    }
+
+    peersRef.current.forEach((_peer, viewerId) => {
+      void sendCamSignal(publisherId, viewerId, "flashlight-state", { active: flashlightActive }).catch(() => {});
+    });
+  }, [flashlightActive]);
+
   async function getLocalStream() {
     if (localStreamRef.current) {
       return localStreamRef.current;
@@ -509,6 +529,16 @@ export default function CamPublisherControl() {
     };
   }
 
+  function sendFlashlightState(viewerId: string, active = flashlightActive) {
+    const publisherId = clientIdRef.current;
+
+    if (!publisherId) {
+      return;
+    }
+
+    void sendCamSignal(publisherId, viewerId, "flashlight-state", { active }).catch(() => {});
+  }
+
   async function stopCurrentRecording() {
     if (recordingSegmentTimerRef.current !== null) {
       window.clearTimeout(recordingSegmentTimerRef.current);
@@ -643,6 +673,19 @@ export default function CamPublisherControl() {
       const offer = await peer.createOffer();
       await peer.setLocalDescription(offer);
       await sendCamSignal(publisherId, viewerId, "offer", offer);
+      sendFlashlightState(viewerId);
+      return;
+    }
+
+    if (message.type === "flashlight-set") {
+      const active = Boolean((message.payload as { active?: boolean } | null)?.active);
+      onRemoteFlashlightChange(active);
+      sendFlashlightState(message.from, active);
+      return;
+    }
+
+    if (message.type === "flashlight-state-request") {
+      sendFlashlightState(message.from);
       return;
     }
 

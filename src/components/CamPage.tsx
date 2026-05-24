@@ -98,6 +98,8 @@ export default function CamPage() {
     state: "idle",
     url: "",
   });
+  const [remoteFlashlightActive, setRemoteFlashlightActive] = useState(false);
+  const [remoteFlashlightStatus, setRemoteFlashlightStatus] = useState("Lista para usar");
   const [status, setStatus] = useState("Listo para ver la camara");
   const [errorMessage, setErrorMessage] = useState("");
   const [now, setNow] = useState(() => new Date());
@@ -177,6 +179,7 @@ export default function CamPage() {
     setViewerState("connecting");
     setStatus("Conectando con la tablet");
     await sendCamSignal(viewerId, publisherId, "viewer-ready", null);
+    void sendCamSignal(viewerId, publisherId, "flashlight-state-request", null).catch(() => {});
   }
 
   async function handleSignal(message: SignalMessage) {
@@ -224,6 +227,13 @@ export default function CamPage() {
       const answer = await peer.createAnswer();
       await peer.setLocalDescription(answer);
       await sendCamSignal(viewerId, message.from, "answer", answer);
+      return;
+    }
+
+    if (message.type === "flashlight-state") {
+      const active = Boolean((message.payload as { active?: boolean } | null)?.active);
+      setRemoteFlashlightActive(active);
+      setRemoteFlashlightStatus(active ? "Linterna encendida en la tablet" : "Linterna apagada en la tablet");
       return;
     }
 
@@ -379,6 +389,25 @@ export default function CamPage() {
     setActivePanel("recordings");
     setRecordingStatus("Solicitando grabacion a la tablet");
     sendRecordingChannelMessage(channel, { type: "recording-request", id: recording.id });
+  }
+
+  async function setRemoteFlashlight(active: boolean) {
+    const viewerId = clientIdRef.current;
+    const publisherId = publisherIdRef.current;
+
+    if (!viewerId || !publisherId) {
+      setRemoteFlashlightStatus("Todavia no hay conexion con la tablet");
+      return;
+    }
+
+    setRemoteFlashlightActive(active);
+    setRemoteFlashlightStatus(active ? "Encendiendo linterna" : "Apagando linterna");
+
+    try {
+      await sendCamSignal(viewerId, publisherId, "flashlight-set", { active });
+    } catch {
+      setRemoteFlashlightStatus("No se pudo enviar la orden");
+    }
   }
 
   function repairWebmDuration(event: SyntheticEvent<HTMLVideoElement>) {
@@ -640,6 +669,18 @@ export default function CamPage() {
             <section className="rounded-lg border border-white/10 bg-white/[0.04] p-4">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-white/40">Acciones</p>
               <div className="mt-4 grid gap-2">
+                <button
+                  className={`min-h-12 rounded-lg px-4 text-base font-black transition active:scale-[0.97] ${
+                    remoteFlashlightActive
+                      ? "bg-amber-300 text-slate-950 hover:bg-amber-200"
+                      : "bg-white/[0.08] text-white hover:bg-white/[0.14]"
+                  }`}
+                  onClick={() => void setRemoteFlashlight(!remoteFlashlightActive)}
+                  type="button"
+                >
+                  {remoteFlashlightActive ? "Apagar linterna" : "Encender linterna"}
+                </button>
+                <p className="px-1 text-xs font-bold text-white/45">{remoteFlashlightStatus}</p>
                 <button
                   className="min-h-12 rounded-lg bg-white/[0.08] px-4 text-base font-black text-white transition hover:bg-white/[0.14] active:scale-[0.97]"
                   onClick={restartViewer}
