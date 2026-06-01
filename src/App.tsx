@@ -6,7 +6,7 @@ import CleaningMode, { BrushIcon } from "./components/CleaningMode";
 import DayCard from "./components/DayCard";
 import HomeScreen from "./components/HomeScreen";
 import type { Task } from "./types";
-import { formatLongDate, getDateFromTodayOffset, getTodayISODate } from "./utils/dateUtils";
+import { addDays, formatLongDate, getTodayISODate, parseLocalDate, toISODate } from "./utils/dateUtils";
 import { generateDayScheduleForDate } from "./utils/scheduleGenerator";
 import {
   cleanupPastDates,
@@ -79,7 +79,7 @@ export default function App() {
     );
   }
 
-  const today = useMemo(() => getTodayISODate(), []);
+  const [today, setToday] = useState(() => getTodayISODate());
   const [showSchedule, setShowSchedule] = useState(false);
   const [dayOffset, setDayOffset] = useState(0);
   const [refreshToken, setRefreshToken] = useState(0);
@@ -92,9 +92,13 @@ export default function App() {
   const [cleaningModeActive, setCleaningModeActive] = useState(false);
   const [flashlightActive, setFlashlightActive] = useState(false);
   const automaticFlashlightRef = useRef(false);
+  const todayRef = useRef(today);
   const swipeStartX = useRef<number | null>(null);
 
-  const selectedDate = useMemo(() => getDateFromTodayOffset(dayOffset), [dayOffset]);
+  const selectedDate = useMemo(
+    () => toISODate(addDays(parseLocalDate(today), dayOffset)),
+    [dayOffset, today],
+  );
   const daySchedule = useMemo(
     () => generateDayScheduleForDate(selectedDate, checks),
     [selectedDate, checks, refreshToken],
@@ -103,6 +107,25 @@ export default function App() {
   useEffect(() => {
     cleanupPastDates(today);
   }, [today]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const nextToday = getTodayISODate();
+
+      if (todayRef.current === nextToday) {
+        return;
+      }
+
+      todayRef.current = nextToday;
+      setToday(nextToday);
+      setDayOffset(0);
+      setSlideDirection("today");
+      setDragOffset(0);
+      setRefreshToken((current) => current + 1);
+    }, 60_000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;

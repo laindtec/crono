@@ -9,6 +9,8 @@ import {
 import { APP_TIME_ZONE } from "../utils/dateUtils";
 import KitchenTimer from "./KitchenTimer";
 
+const WEATHER_REFRESH_MS = 15 * 60 * 1000;
+
 type HomeScreenProps = {
   onOpenSchedule: () => void;
 };
@@ -46,20 +48,26 @@ export default function HomeScreen({ onOpenSchedule }: HomeScreenProps) {
   useEffect(() => {
     let active = true;
 
-    fetchFranckWeather()
-      .then((data) => {
-        if (active) {
-          setWeather(data);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setWeather(null);
-        }
-      });
+    function refreshWeather() {
+      fetchFranckWeather()
+        .then((data) => {
+          if (active) {
+            setWeather(data);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setWeather(null);
+          }
+        });
+    }
+
+    refreshWeather();
+    const timer = window.setInterval(refreshWeather, WEATHER_REFRESH_MS);
 
     return () => {
       active = false;
+      window.clearInterval(timer);
     };
   }, []);
 
